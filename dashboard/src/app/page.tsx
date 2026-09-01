@@ -267,14 +267,14 @@ export default function Dashboard() {
             { symbol: "AAPL", price: 224.30, change_pct: 0.50 },
             { symbol: "MSFT", price: 448.20, change_pct: 0.35 },
             { symbol: "TSLA", price: 214.80, change_pct: -0.85 },
-          ]).map((quote) => {
-            const isPos = quote.change_pct >= 0;
+          ]).filter(q => q.price != null && q.change_pct != null).map((quote) => {
+            const isPos = (quote.change_pct ?? 0) >= 0;
             return (
               <div key={quote.symbol} className="flex items-center gap-2 shrink-0">
                 <span className="font-bold text-slate-200">{quote.symbol}</span>
-                <span className="text-slate-300">${quote.price.toFixed(2)}</span>
+                <span className="text-slate-300">${(quote.price ?? 0).toFixed(2)}</span>
                 <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${isPos ? "bg-emerald-500/15 text-emerald-400" : "bg-rose-500/15 text-rose-400"}`}>
-                  {isPos ? "+" : ""}{quote.change_pct.toFixed(2)}%
+                  {isPos ? "+" : ""}{(quote.change_pct ?? 0).toFixed(2)}%
                 </span>
               </div>
             );
