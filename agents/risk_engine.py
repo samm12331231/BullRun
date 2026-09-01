@@ -110,14 +110,24 @@ class RiskEngine:
         # ── Check 2: CONVICTION SIZING (Position Sizing by Score) ──────────
         qty = int(proposal.get("quantity", proposal.get("recommended_contracts", 1)))
         total_risk_proposed = float(proposal.get("total_risk_proposed", max_loss_per_contract * qty))
-        passed_sizing = total_risk_proposed <= max_allowed_risk
+        # Derive max allowed contracts from conviction score + 2% cap
+        conviction_score = float(proposal.get("conviction_score", 80))
+        if conviction_score >= 95:
+            max_contracts = max(1, int(max_allowed_risk / max_loss_per_contract))
+        elif conviction_score >= 90:
+            max_contracts = max(1, int(max_allowed_risk / max_loss_per_contract * 0.75))
+        elif conviction_score >= 80:
+            max_contracts = max(1, int(max_allowed_risk / max_loss_per_contract * 0.5))
+        else:
+            max_contracts = 0  # Below 80 conviction = no trade
+        passed_sizing = qty <= max_contracts and total_risk_proposed <= max_allowed_risk
         checks.append({
             "name": "CONVICTION SIZING",
             "status": "PASS" if passed_sizing else "REJECT",
             "detail": (
-                f"{qty} contract{'s' if qty > 1 else ''} (${total_risk_proposed:,.0f} risk) within 2% cap (${max_allowed_risk:,.0f})"
+                f"{qty} contract{'s' if qty > 1 else ''} (${total_risk_proposed:,.0f} risk) ≤ {max_contracts} max (conviction {conviction_score:.0f}, 2% cap ${max_allowed_risk:,.0f})"
                 if passed_sizing else
-                f"{qty} contracts risk ${total_risk_proposed:,.0f} > ${max_allowed_risk:,.0f} 2% limit"
+                f"{qty} contracts exceed conviction-based limit of {max_contracts} (score {conviction_score:.0f}) or 2% cap"
             ),
         })
 
@@ -179,11 +189,18 @@ class RiskEngine:
         # ── Check 6: TIME-OF-DAY GUARD (No trades first/last 30 min) ─────
         now_est = datetime.now()  # Evaluated in local / EST context
         current_time = now_est.time()
-        start_buffer = time(9, 30 + self.limits.market_guard_start_min)   # 10:00 AM EST
-        end_buffer = time(16 - (self.limits.market_guard_end_min // 60), 60 - (self.limits.market_guard_end_min % 60) if self.limits.market_guard_end_min % 60 else 0)  # 3:30 PM EST
+        # Market open 9:30 EST, close 16:00 EST
+        # Block first 30 min (9:30-10:00) and last 30 min (15:30-16:00)
+        market_open = time(9, 30)
+        open_buffer_end = time(10, 0)   # 9:30 + 30min = 10:00
+        close_buffer_start = time(15, 30)  # 16:00 - 30min = 15:30
+        market_close = time(16, 0)
         
-        # When market enforcement is active or during trading
-        is_in_safe_window = (start_buffer <= current_time <= end_buffer) if self.limits.enforce_market_hours else True
+        in_open_buffer = market_open <= current_time < open_buffer_end
+        in_close_buffer = close_buffer_start <= current_time <= market_close
+        outside_market = current_time < market_open or current_time > market_close
+        
+        is_in_safe_window = not (in_open_buffer or in_close_buffer) if self.limits.enforce_market_hours else True
         passed_time = is_in_safe_window
         checks.append({
             "name": "TIME-OF-DAY GUARD",
