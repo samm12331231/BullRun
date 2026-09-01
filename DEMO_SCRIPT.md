@@ -1,73 +1,46 @@
-# BullRun — Hackathon Demo Video Script (2-Minute Pitch)
+# BullRun — 2-Minute Hackathon Demo Script
 
-**Target Duration:** 120 seconds (2:00)  
-**Tone:** Confident, institutional, crisp, founder-grade  
-**Visuals:** Fullscreen screen recording of BullRun Bloomberg Terminal UI and CLI terminal side-by-side.
-
----
-
-### [0:00 – 0:20] The Hook & The Problem
-> **[VISUAL: Zoom in on Bloomberg terminal interface showing real-time price ticker, glowing metrics, and candlestick chart]**
+### 0:00–0:10 — Opening hook
+> **[VISUAL: BullRun dashboard; signal and trade card appear.]**
 >
-> **SPEAKER:**  
-> "Retail investors lose billions in options trading every year. Not because they can’t predict market direction, but because single-leg options suffer from brutal time decay, volatility crush, and catastrophic margin risk.  
-> 
-> Meanwhile, most AI trading agents make this worse: they’re black-box autonomous bots that hallucinate order sizes and take unhedged risks.  
->
-> Meet **BullRun**—an institutional AI options trading desk built for the Alpaca Trading Platform that operates on a single core principle: **AI proposes, Evidence decides, Humans authorize.**"
+> **SPEAKER:** “What if an AI could find an options trade—and teach you exactly why it wants the trade before you approve it?”
 
----
+### 0:10–0:30 — The problem
+> **[VISUAL: Briefly show a conventional signal/bot view with no explanation, then cut back to BullRun.]**
+>
+> **SPEAKER:** “Most trading bots are black boxes: they output BUY or SELL, but hide the reasoning, the payoff, and the failure mode. For beginners, that makes sophisticated automation impossible to trust or learn from. BullRun takes the opposite approach: AI proposes, evidence decides, and humans authorize.”
 
-### [0:20 – 0:50] The Multi-Agent Pipeline & 12-Gate Risk Engine
-> **[VISUAL: Click 'Trigger AI Scan'. Telemetry stream flashes with Scout, Quant, Risk, and CIO agent status logs]**
+### 0:30–1:30 — Live demo: signal → proposal → teaching → consent → execution
+> **[VISUAL: Trigger a BullRun scan.]**
 >
-> **SPEAKER:**  
-> "Behind this Bloomberg-grade terminal is a four-agent pipeline.  
-> First, our **Scout Agent** ingests historical bars from Alpaca, measuring ADX trend power, EMA 20/50 alignment, and ATR volatility to classify the regime as Bullish.  
+> **SPEAKER:** “First, Scout reads the market and classifies the regime. Here we have a bullish setup.”
 >
-> Next, our **Quant Agent** scans Alpaca options chains, prices Black-Scholes Greeks, and structures a defined-risk debit spread—capping maximum risk strictly to the cash paid at entry.  
+> **[VISUAL: Show Quant proposal and conviction score.]**
 >
-> But here’s what makes BullRun winning tech: before any trade reaches the user, it must pass our **12 Deterministic Risk Gates**. The non-negotiable 2% portfolio loss rule, conviction-scaled sizing, a 6% portfolio heat limit, correlation checks across indices, market open/close time-of-day guards, and earnings proximity filters. Zero LLM hallucinations—pure mathematical enforcement."
+> “Quant turns that signal into a defined-risk options spread. The conviction card breaks the score into six weighted factors—regime strength, momentum, options pricing, liquidity, risk/reward, and time alignment—so we can see what is actually driving the decision.”
+>
+> **[VISUAL: Open the teaching sections on the trade card.]**
+>
+> “Now the important part: BullRun teaches. ‘Why This Matters’ connects the setup to real market context. Historical Context compares similar journal trades when enough data exists. The glossary explains terms like delta, theta, gamma, and implied volatility in plain English. And the explanation adapts: beginners get intuition, intermediate users get Greeks, and advanced users get the full mechanics.”
+>
+> **[VISUAL: Show risk meter and “What if I’m wrong?” section.]**
+>
+> “Before approval, the risk meter makes maximum loss visible as a percentage of the account, while ‘What if I’m wrong?’ translates the worst case into one sentence: this is the most the defined-risk structure is designed to lose per contract.”
+>
+> **[VISUAL: Risk checks PASS, then consent prompt.]**
+>
+> “The Risk Engine independently enforces the hard limits. The human sees the complete proposal, understands it, and explicitly consents.”
+>
+> **[VISUAL: Click APPROVE; show Alpaca execution status.]**
+>
+> “Only then does BullRun execute through Alpaca. The position is handed to the monitor with pre-authorized exit rules.”
 
----
-
-### [0:50 – 1:20] The Plain-English CIO & Human-in-the-Loop Consent
-> **[VISUAL: Focus on the Trade Card: Plain-English thesis, Greeks breakdown, and one-click 'AUTHORIZE TRADE' button]**
+### 1:30–1:50 — The teaching moment: rejected trade
+> **[VISUAL: Trigger a setup that fails a risk gate or has a neutral/volatile regime.]**
 >
-> **SPEAKER:**  
-> "The LLM NEVER decides whether to trade. Instead, our **CIO Agent** acts as the user's educator, translating complex options math into plain English: What’s happening, what we’re buying, our exact maximum gain, and what could go wrong.  
->
-> In the Trading Academy tab, users can interactively simulate their portfolio sizing and understand why debit spreads eliminate catastrophic tail risk.  
->
-> Now, the human trader reviews the exact parameters and clicks **Authorize Trade**."
+> **SPEAKER:** “Here is where BullRun really earns its teaching layer. This trade is rejected. Instead of silently disappearing, the system tells us exactly why: the market is too weak, volatility is too high, or a deterministic risk limit failed. The lesson is simple—passing on a trade is a decision too. We preserve capital for a setup with better evidence.”
 
----
-
-### [1:20 – 1:45] Multi-Leg Alpaca Execution & Dynamic Autopilot
-> **[VISUAL: Click 'Authorize Trade'. Order status flips to FILLED. Position Monitor logs position and live P&L]**
+### 1:50–2:00 — Closing impact line
+> **[VISUAL: Full dashboard showing the teaching card, risk controls, and journal.]**
 >
-> **SPEAKER:**  
-> "Instantly, BullRun’s execution engine submits an atomic multi-leg order to the Alpaca API with exponential backoff retries and two-leg fill verification.  
->
-> Post-entry, our **Position Monitor Autopilot** takes over: tracking account-native P&L from Alpaca, taking 50% partial profits at +30%, alerting if within 5% of stop loss, and executing automated Greeks-based exits if delta falls below 0.10.  
->
-> Every signal, proposal, and consent decision is sealed with a **SHA-256 hash-chained audit log**."
-
----
-
-### [1:45 – 2:00] The Closing
-> **[VISUAL: Return to full dashboard view showing portfolio gains, win rate, and verified audit chain]**
->
-> **SPEAKER:**  
-> "BullRun turns every trader into a disciplined, educated options desk. Production-ready, deterministic, and built natively for Alpaca.  
-> 
-> Thank you, and welcome to the future of intelligent options trading."
-
----
-
-### Demo Checklist Before Recording:
-1. Ensure FastAPI backend is running (`python3 api.py`).
-2. Ensure Next.js dashboard is running (`npm run dev` in `dashboard/`).
-3. Verify Alpaca Paper API keys are configured in `.env`.
-4. Open `http://localhost:3000` in fullscreen browser with dark mode.
-5. Have terminal open side-by-side with rich terminal formatting.
+> **SPEAKER:** “BullRun doesn’t ask beginners to trust an AI. It lets them watch the reasoning, understand the risk, and learn from every decision. This isn’t just a trading bot. It’s a trading school.”
