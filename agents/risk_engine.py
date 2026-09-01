@@ -112,14 +112,14 @@ class RiskEngine:
         total_risk_proposed = float(proposal.get("total_risk_proposed", max_loss_per_contract * qty))
         # Derive max allowed contracts from conviction score + 2% cap
         conviction_score = float(proposal.get("conviction_score", 80))
-        if conviction_score >= 95:
+        if conviction_score >= 80:
             max_contracts = max(1, int(max_allowed_risk / max_loss_per_contract))
-        elif conviction_score >= 90:
+        elif conviction_score >= 60:
             max_contracts = max(1, int(max_allowed_risk / max_loss_per_contract * 0.75))
-        elif conviction_score >= 80:
+        elif conviction_score >= 40:
             max_contracts = max(1, int(max_allowed_risk / max_loss_per_contract * 0.5))
         else:
-            max_contracts = 0  # Below 80 conviction = no trade
+            max_contracts = 0  # Below 40 conviction = no trade
         passed_sizing = qty <= max_contracts and total_risk_proposed <= max_allowed_risk
         checks.append({
             "name": "CONVICTION SIZING",
@@ -279,7 +279,7 @@ class RiskEngine:
             "detail": (
                 f"${width:.2f} ≤ ${self.limits.max_spread_width:.2f}"
                 if passed_width else
-                f"${width:.2f} > ${self.limits.max_spread_width:.2f} — WIDTH EXCEEDS $5 LIMIT"
+                f"${width:.2f} > ${self.limits.max_spread_width:.2f} — WIDTH EXCEEDS ${self.limits.max_spread_width:.2f} LIMIT"
             ),
         })
 

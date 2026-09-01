@@ -53,7 +53,7 @@ LONG_LEG_DELTA_MAX = 0.65       # Buy leg: maximum delta
 SHORT_LEG_DELTA_MIN = 0.25      # Sell leg: minimum delta
 SHORT_LEG_DELTA_MAX = 0.40      # Sell leg: maximum delta
 MIN_SPREAD_WIDTH = 2.0          # Minimum $2 width
-MAX_SPREAD_WIDTH = 5.0          # Maximum $5 width
+MAX_SPREAD_WIDTH = 7.0          # Maximum $5 width
 MIN_BID_ASK_SPREAD = 0.00       # Minimum liquidity
 MAX_BID_ASK_SPREAD = 0.15       # Maximum bid-ask spread width
 
