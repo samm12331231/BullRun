@@ -1,12 +1,12 @@
 """
 orchestrator.py — Master Orchestrator
 
-Role: The central coordinator of Conviction Gate. Runs each agent in the
+Role: The central coordinator of BullRun. Runs each agent in the
 correct sequence, passes data between them, and handles the full pipeline:
 
   Scout → Quant → Risk Engine → CIO → Trade Card → Consent → Execution → Monitor
 
-This is the "conductor" of Conviction Gate — it keeps all players in sync.
+This is the "conductor" of BullRun — it keeps all players in sync.
 
 Broadcasts every stage event via WebSocket so the Next.js dashboard
 updates in real-time.
@@ -67,7 +67,7 @@ def _broadcast(message: dict):
 
 def run_pipeline() -> dict:
     """
-    Execute the full Conviction Gate pipeline.
+    Execute the full BullRun pipeline.
     Returns all intermediate and final results.
     """
 
@@ -75,7 +75,7 @@ def run_pipeline() -> dict:
     _trade_counter += 1
 
     console.print()
-    console.rule("[bold gold1]  CONVICTION GATE  |  Starting Pipeline  [/bold gold1]")
+    console.rule("[bold gold1]  BULLRUN  |  Starting Pipeline  [/bold gold1]")
     console.print()
 
     results = {}
@@ -347,7 +347,7 @@ def run_summary():
 
 
 if __name__ == "__main__":
-    console.print("[bold gold1]Conviction Gate — Master Orchestrator[/bold gold1]")
+    console.print("[bold gold1]BullRun — Master Orchestrator[/bold gold1]")
     console.print("Running single pipeline test...\n")
     result = run_pipeline()
     console.print("\nResult:")

@@ -5,7 +5,7 @@ Role: The final checkpoint before human consent. Validates every trade proposal
 against 8 hardcoded risk rules. Can only say PASS or REJECT.
 No LLM involved. No ambiguity. No override.
 
-This is the "shield" of Conviction Gate — it ensures no bad trade reaches the human.
+This is the "shield" of BullRun — it ensures no bad trade reaches the human.
 
 The 2% Rule: No single trade can lose more than 2% of the portfolio.
 On a $100K account, that's $2,000 max loss per trade.

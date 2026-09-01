@@ -4,7 +4,7 @@ monitor.py — Position Monitor Engine
 Role: Monitors open positions and executes pre-authorized exits.
 Entries require human consent. Exits are automatic based on deterministic rules.
 
-This is the "autopilot" of Conviction Gate — it manages positions after entry.
+This is the "autopilot" of BullRun — it manages positions after entry.
 
 Exit rules (from config.py):
 - Stop loss: position drops 30% from entry (tight!)
@@ -283,7 +283,7 @@ def render_dashboard(monitor: PositionMonitor) -> None:
     closed_pos = monitor.get_closed_positions()
 
     console.print()
-    console.rule("[bold gold1]  CONVICTION GATE — PORTFOLIO DASHBOARD  [/bold gold1]")
+    console.rule("[bold gold1]  BULLRUN — PORTFOLIO DASHBOARD  [/bold gold1]")
 
     summary_table = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold white")
     summary_table.add_column("Metric", style="dim", width=20)

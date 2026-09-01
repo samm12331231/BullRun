@@ -1,5 +1,5 @@
 """
-api.py — FastAPI Backend for Conviction Gate
+api.py — FastAPI Backend for BullRun
 
 Provides:
 - REST API for trade data, positions, audit trail
@@ -20,7 +20,7 @@ from audit import get_trade_history, get_trade_summary
 
 
 app = FastAPI(
-    title="Conviction Gate API",
+    title="BullRun API",
     description="AI Options Trading Desk — Backend",
     version="1.0.0",
 )
@@ -103,7 +103,7 @@ class AIAnalysis(BaseModel):
 @app.get("/")
 async def root():
     return {
-        "name": "Conviction Gate API",
+        "name": "BullRun API",
         "version": "1.0.0",
         "tagline": "AI proposes. Evidence decides. Humans authorize.",
         "status": "running",

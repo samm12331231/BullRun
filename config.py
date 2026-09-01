@@ -1,5 +1,5 @@
 """
-config.py — Central configuration for Conviction Gate.
+config.py — Central configuration for BullRun.
 Stores Alpaca credentials, risk constants, and shared settings.
 
 API keys are loaded from .env file (never hardcoded in source).

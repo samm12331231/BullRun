@@ -1,1 +1,1 @@
-# Conviction Gate agents package
+# BullRun agents package

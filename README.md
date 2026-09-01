@@ -1,4 +1,4 @@
-# Conviction Gate
+# BullRun
 
 **AI proposes. Evidence decides. Humans authorize.**
 
@@ -6,7 +6,7 @@ An AI options trading desk that makes risk understandable and bounded. Every tra
 
 ## What It Does
 
-Conviction Gate is a multi-agent trading system that:
+BullRun is a multi-agent trading system that:
 
 1. **Scout** scans SPY market regime (BULLISH/BEARISH/NEUTRAL/VOLATILE)
 2. **Quant** selects defined-risk options spreads (bull call / bear put)
@@ -21,7 +21,7 @@ Conviction Gate is a multi-agent trading system that:
 
 > "The hardest part of trading isn't the math — it's the trust."
 
-Most AI trading agents optimize for autonomy. Conviction Gate optimizes for **accountability**. The AI never receives unrestricted execution authority. Every trade must pass:
+Most AI trading agents optimize for autonomy. BullRun optimizes for **accountability**. The AI never receives unrestricted execution authority. Every trade must pass:
 - Deterministic risk gates (Python, not LLM)
 - Human consent (explicit approval)
 - Pre-authorized exit rules (automatic management)
@@ -101,7 +101,7 @@ Every trade proposal is displayed as a beginner-friendly card:
 
 ```
 ╔══════════════════════════════════════════════════════════╗
-║         CONVICTION GATE — TRADE PROPOSAL #017           ║
+║         BULLRUN — TRADE PROPOSAL #017           ║
 ╠══════════════════════════════════════════════════════════╣
 ║                                                          ║
 ║  SPY Bull Call Spread                                    ║
@@ -158,7 +158,7 @@ Score < 60 → reject (skipped)
 ## Project Structure
 
 ```
-conviction_gate/
+bullrun/
 ├── config.py              # Settings, risk constants, Alpaca keys
 ├── main.py                # Entry point
 ├── orchestrator.py        # Pipeline coordinator
@@ -178,7 +178,7 @@ conviction_gate/
 
 ## The Pitch
 
-> "Most AI trading agents are designed to maximize autonomy. We designed ours to maximize accountable autonomy. Conviction Gate combines multiple independent signals to generate options trades, but the AI never receives unrestricted execution authority. Every trade must pass deterministic risk controls, produce an auditable thesis, and receive explicit human consent before reaching Alpaca."
+> "Most AI trading agents are designed to maximize autonomy. We designed ours to maximize accountable autonomy. BullRun combines multiple independent signals to generate options trades, but the AI never receives unrestricted execution authority. Every trade must pass deterministic risk controls, produce an auditable thesis, and receive explicit human consent before reaching Alpaca."
 
 ## License
 

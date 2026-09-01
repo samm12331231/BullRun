@@ -1,5 +1,5 @@
 """
-main.py — Entry Point for Conviction Gate
+main.py — Entry Point for BullRun
 
 Run this file to execute the full trading pipeline:
     python main.py              # Single pipeline run
@@ -41,12 +41,12 @@ console = Console()
 
 
 def print_banner():
-    """Print the Conviction Gate banner."""
+    """Print the BullRun banner."""
     console.print()
     console.print(Panel(
         Text("  AI proposes. Evidence decides. Humans authorize.\n", style="italic gold1") +
         Text("  An options trading desk for people who don't trade options.\n", style="dim"),
-        title="[bold gold1]CONVICTION GATE[/bold gold1]",
+        title="[bold gold1]BULLRUN[/bold gold1]",
         subtitle=f"[dim]{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}[/dim]",
         border_style="gold1",
         padding=(1, 2),
@@ -114,7 +114,7 @@ def loop_mode():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Conviction Gate — AI Options Trading Desk",
+        description="BullRun — AI Options Trading Desk",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -149,7 +149,7 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        console.print("\n[yellow]Conviction Gate stopped by user.[/yellow]")
+        console.print("\n[yellow]BullRun stopped by user.[/yellow]")
         sys.exit(0)
     except Exception as e:
         console.print(f"\n[bold red][ERROR] {e}[/bold red]")

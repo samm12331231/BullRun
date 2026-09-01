@@ -5,7 +5,7 @@ Role: Takes the regime from Scout and selects the appropriate options structure.
 Picks specific contracts (strikes, expiry) based on delta, liquidity, and DTE.
 Calculates max loss, max profit, and breakeven for the proposed trade.
 
-This is the "brain" of Conviction Gate — it decides WHAT to trade.
+This is the "brain" of BullRun — it decides WHAT to trade.
 
 Input:  regime_result dict from scout_agent.py
 Output: A trade proposal dictionary with structure, legs, and risk metrics

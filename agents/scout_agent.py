@@ -4,7 +4,7 @@ scout_agent.py — Scout Agent (Regime Detection)
 Role: Fetches SPY price data and uses technical indicators to classify
 the current market into one of four regimes: BULLISH, BEARISH, NEUTRAL, VOLATILE.
 
-This is the "eyes" of Conviction Gate — it tells us WHAT the market is doing.
+This is the "eyes" of BullRun — it tells us WHAT the market is doing.
 
 Input:  None (fetches its own data from Alpaca/Yahoo Finance)
 Output: A dictionary with regime label, confidence, and key metrics

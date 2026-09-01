@@ -4,7 +4,7 @@ trade_card.py — Trade Card Renderer
 Role: Takes the complete trade proposal (from Quant, Risk, CIO) and renders
 a beautiful Rich terminal card that a beginner can understand.
 
-This is the "face" of Conviction Gate — it shows the human exactly what
+This is the "face" of BullRun — it shows the human exactly what
 they're approving, in plain English.
 
 Two views:
@@ -50,7 +50,7 @@ def render_trade_card(
 
     # ── Header ───────────────────────────────────────────────────────────
     header = Text()
-    header.append("CONVICTION GATE", style="bold gold1")
+    header.append("BULLRUN", style="bold gold1")
     header.append(" — TRADE PROPOSAL", style="bold")
     if trade_number:
         header.append(f" #{trade_number:03d}", style="dim")
@@ -180,7 +180,7 @@ def _render_no_trade_card(proposal: dict, trade_number: int = 0) -> None:
     console.print()
     console.print(Panel(
         content,
-        title=Text("CONVICTION GATE", style="bold gold1") + Text(" — NO TRADE", style="bold dim"),
+        title=Text("BULLRUN", style="bold gold1") + Text(" — NO TRADE", style="bold dim"),
         border_style="dim",
         padding=(0, 1),
         width=62,

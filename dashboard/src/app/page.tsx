@@ -167,7 +167,7 @@ export default function Dashboard() {
               ⚡
             </div>
             <span className="text-lg font-bold" style={{ color: "var(--gold)" }}>
-              Conviction Gate
+              BullRun
             </span>
           </div>
           <div className="text-xs text-[var(--text-muted)] font-mono hidden sm:block">
@@ -350,7 +350,7 @@ export default function Dashboard() {
           <span>Max positions: 3</span>
         </div>
         <div className="flex items-center gap-4">
-          <span>Conviction Gate v1.0</span>
+          <span>BullRun v1.0</span>
           <span>Alpaca Paper Trading</span>
         </div>
       </footer>

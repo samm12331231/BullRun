@@ -4,7 +4,7 @@ consent_gate.py — Human Consent Gate
 Role: The final human checkpoint. Displays the trade proposal and waits
 for explicit human approval before any execution happens.
 
-This is the "conscience" of Conviction Gate — the human always has the final say.
+This is the "conscience" of BullRun — the human always has the final say.
 
 The consent gate:
 1. Shows the trade card
@@ -91,7 +91,7 @@ def run(proposal: dict, risk_check: dict, thesis: dict, trade_number: int) -> di
         console.print()
         console.print(Panel(
             Text("  Trade approved. Submitting to Alpaca...\n", style="bold green"),
-            title=Text("CONVICTION GATE", style="bold gold1") + Text(" — APPROVED", style="bold green"),
+            title=Text("BULLRUN", style="bold gold1") + Text(" — APPROVED", style="bold green"),
             border_style="green",
             width=62,
         ))
@@ -99,7 +99,7 @@ def run(proposal: dict, risk_check: dict, thesis: dict, trade_number: int) -> di
         console.print()
         console.print(Panel(
             Text(f"  Trade rejected. No order submitted.\n  Reason: {reason}\n", style="bold red"),
-            title=Text("CONVICTION GATE", style="bold gold1") + Text(" — REJECTED", style="bold red"),
+            title=Text("BULLRUN", style="bold gold1") + Text(" — REJECTED", style="bold red"),
             border_style="red",
             width=62,
         ))

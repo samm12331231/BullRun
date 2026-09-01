@@ -1,4 +1,4 @@
-"""Deterministic, beginner-first explanations for Conviction Gate.
+"""Deterministic, beginner-first explanations for BullRun.
 
 The teaching engine never recommends a trade.  It translates the existing
 Scout, Quant, and Risk Engine outputs into small lessons that can be safely

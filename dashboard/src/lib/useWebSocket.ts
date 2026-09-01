@@ -111,7 +111,7 @@ export function useWebSocket() {
 
       ws.onopen = () => {
         setConnected(true);
-        console.log("[WS] Connected to Conviction Gate");
+        console.log("[WS] Connected to BullRun");
       };
 
       ws.onmessage = (event) => {

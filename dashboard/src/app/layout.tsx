@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Conviction Gate — AI Options Trading Desk",
+  title: "BullRun — AI Options Trading Desk",
   description:
     "AI proposes. Evidence decides. Humans authorize. An options trading desk for people who don't trade options.",
 };

@@ -4,7 +4,7 @@ execution.py — Alpaca Execution Layer
 Role: Takes an approved trade proposal and executes it on Alpaca paper trading
 via the MCP server (primary) or alpaca-py SDK (fallback).
 
-This is the "hands" of Conviction Gate — it places the actual orders.
+This is the "hands" of BullRun — it places the actual orders.
 
 IMPORTANT: This only runs AFTER human consent is received.
 """
@@ -111,14 +111,14 @@ def run(proposal: dict, consent: dict, trade_number: int) -> dict:
             Text(f"  Order submitted successfully!\n"
                  f"  Order ID: {result.get('order_id', 'N/A')}\n"
                  f"  Status: {result.get('status', 'N/A')}\n", style="bold green"),
-            title=Text("CONVICTION GATE", style="bold gold1") + Text(" — EXECUTED", style="bold green"),
+            title=Text("BULLRUN", style="bold gold1") + Text(" — EXECUTED", style="bold green"),
             border_style="green",
             width=62,
         ))
     else:
         console.print(Panel(
             Text(f"  Order failed: {result.get('error', 'Unknown error')}\n", style="bold red"),
-            title=Text("CONVICTION GATE", style="bold gold1") + Text(" — FAILED", style="bold red"),
+            title=Text("BULLRUN", style="bold gold1") + Text(" — FAILED", style="bold red"),
             border_style="red",
             width=62,
         ))

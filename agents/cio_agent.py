@@ -5,7 +5,7 @@ Role: Takes the trade proposal and generates a plain-English explanation
 that a complete beginner can understand. Uses GPT-4o-mini to translate
 technical trade parameters into human-readable language.
 
-This is the "voice" of Conviction Gate — it explains WHY the trade makes sense.
+This is the "voice" of BullRun — it explains WHY the trade makes sense.
 
 IMPORTANT: The LLM NEVER decides whether to trade. It only explains.
 The Risk Engine decides. The human decides. The LLM just talks.
@@ -20,7 +20,7 @@ from config import OPENAI_API_KEY, LLM_MODEL, UNDERLYING
 
 console = Console()
 
-SYSTEM_PROMPT = """You are a plain-English financial explainer for a beginner trading system called Conviction Gate.
+SYSTEM_PROMPT = """You are a plain-English financial explainer for a beginner trading system called BullRun.
 
 Your job is to explain a trade proposal in simple, clear language that someone with ZERO trading experience can understand.
 

@@ -5,7 +5,7 @@ Role: Maintains a tamper-evident, append-only log of every signal, proposal,
 decision, and trade. Each event is SHA-256 hashed and references the previous
 event's hash, creating an unbreakable chain.
 
-This is the "black box recorder" of Conviction Gate — and it's something
+This is the "black box recorder" of BullRun — and it's something
 judges at trading firms will notice.
 
 Every event is:

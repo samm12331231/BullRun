@@ -5,7 +5,7 @@ Role: After a trade closes, generates a learning report that explains
 what happened, why, and what can be learned. This turns every trade
 into a teaching moment.
 
-This is the "teacher" of Conviction Gate — it helps beginners learn by doing.
+This is the "teacher" of BullRun — it helps beginners learn by doing.
 """
 
 import json
@@ -110,7 +110,7 @@ def generate_learning_report(position: dict, trade_number: int) -> str:
     console.print()
     console.print(Panel(
         content,
-        title=Text("CONVICTION GATE", style="bold gold1") + Text(f" — TRADE RESULT #{trade_number:03d}", style="bold"),
+        title=Text("BULLRUN", style="bold gold1") + Text(f" — TRADE RESULT #{trade_number:03d}", style="bold"),
         border_style=outcome_color,
         padding=(0, 1),
         width=62,
@@ -149,7 +149,7 @@ def generate_session_summary(positions: list) -> None:
     console.print()
     console.print(Panel(
         content,
-        title=Text("CONVICTION GATE", style="bold gold1") + Text(" — SESSION SUMMARY", style="bold"),
+        title=Text("BULLRUN", style="bold gold1") + Text(" — SESSION SUMMARY", style="bold"),
         border_style=pnl_color,
         padding=(0, 1),
         width=62,
