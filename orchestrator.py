@@ -289,6 +289,137 @@ def run_pipeline() -> dict:
     return results
 
 
+def run_pipeline_web() -> dict:
+    """
+    Web-compatible pipeline: runs Scout → Quant → Risk → CIO,
+    broadcasts the trade proposal via WebSocket, and returns
+    WITHOUT blocking on consent. The dashboard handles consent
+    via the /api/consent endpoint.
+    """
+    global _trade_counter
+    _trade_counter += 1
+
+    console.print()
+    console.rule("[bold gold1]  BULLRUN  |  Web Pipeline  [/bold gold1]")
+    console.print()
+
+    results = {}
+
+    # Stage 1: Scout
+    console.print("[bold cyan]Stage 1/4:[/bold cyan] Scout scanning market regime...")
+    try:
+        regime_result = scout_agent.run()
+        regime_result["lesson"] = regime_lesson(regime_result)
+        results["regime"] = regime_result
+        log_signal(regime_result, _trade_counter)
+        _broadcast({"type": "regime_update", "data": regime_result, "trade_number": _trade_counter, "timestamp": datetime.now().isoformat()})
+        _broadcast({"type": "agent_log", "agent": "scout", "message": f"Regime: {regime_result['regime']} (ADX: {regime_result['metrics']['adx']:.1f})", "trade_number": _trade_counter})
+        _broadcast({"type": "teaching_update", "lesson_type": "regime_lesson", "data": regime_result["lesson"], "trade_number": _trade_counter})
+    except Exception as e:
+        console.print(f"[bold red][Orchestrator] Scout failed: {e}[/bold red]")
+        return {"error": f"Scout failed: {e}"}
+
+    regime = regime_result["regime"]
+
+    # Stage 2: Quant
+    console.print(f"\n[bold cyan]Stage 2/4:[/bold cyan] Quant selecting options structure...")
+    try:
+        proposal = quant_agent.run(regime_result)
+        results["proposal"] = proposal
+    except Exception as e:
+        console.print(f"[bold red][Orchestrator] Quant failed: {e}[/bold red]")
+        return {"error": f"Quant failed: {e}"}
+
+    if proposal.get("signal") == "NO_TRADE":
+        proposal["teaching"] = {"rejection": rejection_explainer(regime_result, proposal)}
+        _broadcast({"type": "no_trade", "reason": proposal.get("reason", ""), "teaching": proposal["teaching"], "trade_number": _trade_counter})
+        results["decision"] = "NO_TRADE"
+        return results
+
+    if proposal.get("signal") in ("REJECT", "WATCH"):
+        proposal["teaching"] = {"rejection": rejection_explainer(regime_result, proposal)}
+        _broadcast({"type": "no_trade", "reason": proposal.get("reason", ""), "teaching": proposal["teaching"], "trade_number": _trade_counter})
+        results["decision"] = proposal.get("signal")
+        return results
+
+    log_proposal(proposal, _trade_counter)
+    proposal["teaching"] = {"regime": regime_result["lesson"], "strategy": strategy_explainer(proposal)}
+
+    # Stage 3: Risk Engine
+    console.print(f"\n[bold cyan]Stage 3/4:[/bold cyan] Risk Engine validating...")
+    try:
+        portfolio_state = {
+            "open_position_count": len(monitor.get_open_positions()),
+            "current_portfolio_exposure": sum(p.get("max_loss", 0) or 0 for p in monitor.get_open_positions()),
+            "available_cash": 100_000,
+            "equity": 100_000,
+            "open_positions": monitor.get_open_positions(),
+        }
+        risk_check = risk_engine.risk_engine.check(proposal, portfolio_state)
+        results["risk_check"] = risk_check
+        log_risk_check(risk_check, _trade_counter)
+    except Exception as e:
+        console.print(f"[bold red][Orchestrator] Risk Engine failed: {e}[/bold red]")
+        return {"error": f"Risk Engine failed: {e}"}
+
+    if risk_check["status"] == "REJECT":
+        proposal["teaching"] = {
+            "regime": regime_result["lesson"],
+            "strategy": strategy_explainer(proposal),
+            "rejection": rejection_explainer(regime_result, proposal, risk_check),
+        }
+        proposal["signal"] = "RISK_REJECTED"
+        _broadcast({"type": "risk_rejected", "failed_checks": risk_check.get("failed_checks", []), "teaching": proposal["teaching"], "trade_number": _trade_counter})
+        results["decision"] = "RISK_REJECTED"
+        return results
+
+    # Stage 4: CIO
+    console.print(f"\n[bold cyan]Stage 4/4:[/bold cyan] CIO generating thesis...")
+    try:
+        thesis = cio_agent.run(regime_result, proposal, risk_check)
+        results["thesis"] = thesis
+    except Exception as e:
+        console.print(f"[yellow][Orchestrator] CIO failed: {e} — using fallback[/yellow]")
+        thesis = {
+            "what_happening": f"The market is showing a {regime.lower()} bias.",
+            "the_trade": f"We're placing a {proposal.get('structure', 'spread').replace('_', ' ').title()}.",
+            "the_numbers": f"Max gain: ${proposal.get('max_profit_per_contract', 0):.0f}, Max loss: ${proposal.get('max_loss_per_contract', 0):.0f}.",
+            "why_now": "Multiple indicators confirm the direction.",
+            "what_could_go_wrong": "The market could reverse, causing a loss.",
+        }
+        results["thesis"] = thesis
+
+    # Broadcast full trade proposal — dashboard handles consent
+    _broadcast({
+        "type": "trade_proposal",
+        "trade_number": _trade_counter,
+        "proposal": proposal,
+        "thesis": thesis,
+        "risk_check": risk_check,
+        "timestamp": datetime.now().isoformat(),
+    })
+
+    results["decision"] = "AWAITING_CONSENT"
+    results["trade_number"] = _trade_counter
+    return results
+
+
+def execute_after_consent(trade_number: int, proposal: dict, consent: dict) -> dict:
+    """Execute a trade after web consent is received."""
+    execution = execution_run(proposal, consent, trade_number)
+    log_execution(execution, trade_number)
+    _broadcast({
+        "type": "execution_result",
+        "trade_number": trade_number,
+        "status": execution.get("status"),
+        "order_id": execution.get("order_id"),
+        "timestamp": datetime.now().isoformat(),
+    })
+    if execution.get("status") in ("SUBMITTED", "FILLED", "DRY_RUN"):
+        monitor.add_position(proposal, execution, trade_number)
+    return execution
+
+
 def run_monitor_check() -> list:
     """
     Check all open positions for exit conditions.

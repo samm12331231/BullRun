@@ -60,10 +60,14 @@ manager = ConnectionManager()
 
 
 # ── Connect WebSocket manager to orchestrator on startup ─────────────
+# In-memory proposal store for web consent flow
+_pending_proposals: dict[int, dict] = {}
+
 @app.on_event("startup")
 async def startup():
     from orchestrator import _set_ws_manager
     _set_ws_manager(manager)
+    app._pending_proposals = _pending_proposals
 
 
 # ── Models ──────────────────────────────────────────────────────────────────
@@ -258,7 +262,22 @@ async def get_market_data(symbol: str):
 
 @app.post("/api/scan")
 async def trigger_scan():
-    """Trigger a single pipeline scan."""
+    """Trigger a single pipeline scan (web-compatible, no CLI consent)."""
+    from orchestrator import run_pipeline_web
+    try:
+        result = run_pipeline_web()
+        # Store proposal for consent flow
+        trade_num = result.get("trade_number")
+        if trade_num and result.get("proposal"):
+            _pending_proposals[trade_num] = result["proposal"]
+        return {"status": "completed", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/api/scan-cli")
+async def trigger_scan_cli():
+    """Trigger a pipeline scan with CLI consent (for terminal demo)."""
     from orchestrator import run_pipeline
     try:
         result = run_pipeline()
@@ -278,13 +297,14 @@ async def get_live_positions():
 
 @app.post("/api/consent")
 async def submit_consent(decision: ConsentDecision):
-    """Submit a human consent decision for a trade."""
+    """Submit a human consent decision for a trade and execute if approved."""
     from audit import log_consent
-    log_consent(
-        {"decision": decision.decision, "reason": decision.reason},
-        decision.trade_number,
-    )
-    # Broadcast to all connected clients
+    from orchestrator import execute_after_consent
+
+    consent_dict = {"decision": decision.decision, "reason": decision.reason, "timestamp": datetime.now().isoformat()}
+    log_consent(consent_dict, decision.trade_number)
+
+    # Broadcast consent decision
     await manager.broadcast({
         "type": "consent_decision",
         "trade_number": decision.trade_number,
@@ -292,6 +312,23 @@ async def submit_consent(decision: ConsentDecision):
         "reason": decision.reason,
         "timestamp": datetime.now().isoformat(),
     })
+
+    # If approved, execute the trade
+    if decision.decision == "APPROVE":
+        try:
+            # We need the proposal — get it from the last broadcast state
+            # For now, store proposals in a simple dict
+            if not hasattr(app, '_pending_proposals'):
+                app._pending_proposals = {}
+            proposal = app._pending_proposals.get(decision.trade_number)
+            if proposal:
+                execution = execute_after_consent(decision.trade_number, proposal, consent_dict)
+                return {"status": "executed", "trade_number": decision.trade_number, "execution": execution}
+            else:
+                return {"status": "recorded", "trade_number": decision.trade_number, "note": "Proposal not found in memory"}
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+
     return {"status": "recorded", "trade_number": decision.trade_number}
 
 

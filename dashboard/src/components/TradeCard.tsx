@@ -146,6 +146,58 @@ export default function TradeCard({ proposal, onDecision }: TradeCardProps) {
         </div>
       </div>
 
+      {/* ── Interactive "What-If" Expiration Stress Tester ─────────────── */}
+      <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2.5 font-mono">
+        <div className="flex items-center justify-between text-xs">
+          <span className="font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+            <span>⚡</span> Interactive Scenario Stress Tester
+          </span>
+          <span className="text-[10px] text-slate-400">Drag to test underlying at expiration</span>
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-400">Simulated {p.underlying} Price:</span>
+            <span className="text-white font-bold">${simulatedPrice.toFixed(2)}</span>
+          </div>
+          <input
+            type="range"
+            min={minSimPrice}
+            max={maxSimPrice}
+            step={0.25}
+            value={simulatedPrice}
+            onChange={(e) => setSimulatedPrice(parseFloat(e.target.value))}
+            className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-400"
+          />
+          <div className="flex justify-between text-[9px] text-slate-500">
+            <span>${minSimPrice.toFixed(0)} (Max Loss Zone)</span>
+            <span className="text-amber-400 font-bold">Breakeven: ${p.breakeven?.toFixed(2)}</span>
+            <span>${maxSimPrice.toFixed(0)} (Max Gain Zone)</span>
+          </div>
+        </div>
+
+        {/* Live Simulated Result Pill */}
+        <div className="p-2 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase text-slate-400">Simulated P&amp;L:</span>
+            <span
+              className={`font-bold ${
+                simulatedPnL > 0
+                  ? "text-emerald-400"
+                  : simulatedPnL < 0
+                  ? "text-rose-400"
+                  : "text-amber-300"
+              }`}
+            >
+              ${simulatedPnL >= 0 ? "+" : ""}{simulatedPnL.toFixed(2)}
+            </span>
+          </div>
+          <div className="text-[11px] font-bold" style={{ color: simulatedPnL >= 0 ? "#10b981" : "#f43f5e" }}>
+            {simulatedPnL >= 0 ? `+${((simulatedPnL / totalMaxLoss) * 100).toFixed(0)}% ROI` : `-${Math.min(100, Math.abs((simulatedPnL / totalMaxLoss) * 100)).toFixed(0)}% Drawdown`}
+          </div>
+        </div>
+      </div>
+
       {/* ── Educational Teaching & Strategy Breakdown ─────────────────── */}
       {showTeaching && (
         <div className="p-3.5 rounded-xl bg-gradient-to-br from-slate-950 to-slate-900 border border-slate-800/90 text-xs space-y-2.5">

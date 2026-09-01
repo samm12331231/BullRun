@@ -81,10 +81,14 @@ def _build_order_details(proposal: dict) -> dict:
 
 def _execute_with_retry(order_details: dict) -> dict:
     """Execute order with exponential backoff retry for transient network / rate limits."""
+    backend = os.getenv("EXECUTION_BACKEND", "sdk").strip().lower()
     last_error = "Unknown error"
+    
     for attempt in range(1, EXECUTION_MAX_RETRIES + 1):
         try:
-            console.print(f"[dim][Execution] Attempt {attempt}/{EXECUTION_MAX_RETRIES} submitting multi-leg order...[/dim]")
+            console.print(f"[dim][Execution] Attempt {attempt}/{EXECUTION_MAX_RETRIES} submitting multi-leg order (Backend: {backend.upper()})...[/dim]")
+            if backend == "cli":
+                return _execute_via_cli(order_details)
             return _execute_via_sdk(order_details)
         except Exception as exc:
             last_error = _classify_error(exc)
@@ -95,6 +99,44 @@ def _execute_with_retry(order_details: dict) -> dict:
                 time.sleep(sleep_time)
 
     return _result("FAILED", error=f"Max retries ({EXECUTION_MAX_RETRIES}) exceeded. Last error: {last_error}")
+
+
+def _execute_via_cli(order_details: dict) -> dict:
+    """Execute order via Alpaca CLI if available, falling back to Trading API SDK."""
+    import subprocess
+    import shutil
+
+    alpaca_bin = shutil.which("alpaca")
+    if not alpaca_bin:
+        console.print("[dim][Execution] 'alpaca' CLI binary not found in PATH — routing to SDK[/dim]")
+        return _execute_via_sdk(order_details)
+
+    try:
+        legs_json = json.dumps([
+            {"symbol": leg["symbol"], "side": leg["side"], "quantity": leg["quantity"]}
+            for leg in order_details["legs"]
+        ])
+        cmd = [
+            alpaca_bin, "orders", "create",
+            "--class", "mleg",
+            "--type", "limit",
+            "--limit-price", str(order_details["net_debit"]),
+            "--time-in-force", "day",
+            "--legs", legs_json,
+            "--output", "json"
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        if proc.returncode == 0:
+            parsed = json.loads(proc.stdout)
+            order_id = parsed.get("id") or f"CLI-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            return _result("FILLED", order_id=order_id, receipt=parsed, legs=order_details["legs"])
+        else:
+            console.print(f"[dim][Execution] CLI returned code {proc.returncode}: {proc.stderr} — falling back to SDK[/dim]")
+            return _execute_via_sdk(order_details)
+    except Exception as e:
+        console.print(f"[dim][Execution] CLI invocation error: {e} — falling back to SDK[/dim]")
+        return _execute_via_sdk(order_details)
+
 
 
 

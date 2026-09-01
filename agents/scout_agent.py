@@ -33,12 +33,29 @@ def run() -> dict:
 
     # ── Step 1: Fetch historical OHLCV data ──────────────────────────────
     console.print(f"[dim]Fetching {LOOKBACK_DAYS} days of {UNDERLYING} data...[/dim]")
+    df = None
     try:
         from agents.data_service import get_historical_bars
         df = get_historical_bars(UNDERLYING, days=LOOKBACK_DAYS)
     except Exception as e:
         console.print(f"[yellow][Scout] Primary data fetch failed: {e} — using fallback generator[/yellow]")
-        # Create safe synthetic recent bars for offline demo
+
+    # If data_service returned empty or failed, use yfinance directly
+    if df is None or df.empty or len(df) < 15:
+        try:
+            import yfinance as yf
+            console.print(f"[yellow][Scout] Trying yfinance directly...[/yellow]")
+            yf_df = yf.Ticker(UNDERLYING).history(period=f"{LOOKBACK_DAYS}d")
+            if not yf_df.empty and len(yf_df) >= 15:
+                df = yf_df[["Open", "High", "Low", "Close", "Volume"]].copy()
+                df.index = pd.to_datetime(df.index).tz_localize(None)
+                console.print(f"[green][Scout] yfinance returned {len(df)} bars[/green]")
+        except Exception as e:
+            console.print(f"[yellow][Scout] yfinance also failed: {e}[/yellow]")
+
+    # Last resort: synthetic data for demo
+    if df is None or df.empty or len(df) < 15:
+        console.print("[yellow][Scout] Using synthetic demo data[/yellow]")
         import numpy as np
         dates = pd.date_range(end=datetime.now(), periods=LOOKBACK_DAYS, freq="D")
         closes = 560.0 + np.cumsum(np.random.normal(0.2, 1.5, LOOKBACK_DAYS))

@@ -145,6 +145,7 @@ def get_historical_bars(
                 timeframe=tf,
                 start=datetime.now() - timedelta(days=days),
                 end=datetime.now(),
+                feed="iex",  # Free Alpaca accounts use IEX feed
             )
             _wait_for_rate_limit()
             bars = client.get_stock_bars(request)
@@ -164,6 +165,21 @@ def get_historical_bars(
     if stale is not None:
         console.print("[yellow][Data] Using cached bars after Alpaca failure[/yellow]")
         return stale
+
+    # Fallback: try yfinance if Alpaca is completely unavailable
+    try:
+        import yfinance as yf
+        console.print("[yellow][Data] Trying yfinance fallback...[/yellow]")
+        ticker = yf.Ticker(symbol)
+        yf_df = ticker.history(period=f"{days}d")
+        if not yf_df.empty and len(yf_df) >= 30:
+            result = yf_df[["Open", "High", "Low", "Close", "Volume"]].copy()
+            result.index = pd.to_datetime(result.index).tz_localize(None)
+            console.print(f"[green][Data] yfinance returned {len(result)} bars for {symbol}[/green]")
+            return _cache_set(cache_key, result)
+    except Exception as e:
+        console.print(f"[yellow][Data] yfinance fallback also failed: {e}[/yellow]")
+
     empty = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
     empty.attrs["error"] = f"Alpaca bars unavailable for {symbol}"
     return empty
