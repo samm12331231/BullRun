@@ -20,6 +20,29 @@ export default function TradeCard({ proposal, onDecision }: TradeCardProps) {
   const isBull = p.structure?.includes("CALL") || p.direction === "LONG";
   const directionColor = isBull ? "#10b981" : "#f43f5e";
 
+  // ── Interactive "What-If" Stress Tester state ──────────────────────
+  const currentPrice = p.breakeven || 565;
+  const maxLoss = p.max_loss_per_contract || 200;
+  const maxProfit = p.max_profit_per_contract || 300;
+  const longStrike = p.long_leg?.strike || 565;
+  const shortStrike = p.short_leg?.strike || 570;
+  const minSimPrice = Math.max(0, currentPrice - 30);
+  const maxSimPrice = currentPrice + 30;
+  const [simulatedPrice, setSimulatedPrice] = useState(currentPrice);
+
+  // Calculate simulated P&L based on price at expiration
+  const simulatedPnL = p.structure?.includes("BULL")
+    ? (simulatedPrice <= longStrike
+        ? -maxLoss
+        : simulatedPrice >= shortStrike
+        ? maxProfit
+        : ((simulatedPrice - longStrike) * 100) - maxLoss)
+    : (simulatedPrice >= longStrike
+        ? -maxLoss
+        : simulatedPrice <= shortStrike
+        ? maxProfit
+        : ((longStrike - simulatedPrice) * 100) - maxLoss);
+
   const handleDecision = async (dec: string) => {
     setLoading(true);
     try {
