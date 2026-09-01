@@ -234,8 +234,9 @@ class PositionMonitor:
                 return f"Stop loss: down {loss_pct:.0%} from entry (limit: -{RISK_LIMITS.stop_loss_pct:.0%})"
 
         # ── Rule 4: Partial Profit Taking (+30% of max profit) ─────────
+        # Note: max_profit is stored as dollars/contract (×100), current_value is per-share
         if max_profit > 0 and entry_debit > 0:
-            gain_pct = (current_value - entry_debit) / max_profit
+            gain_pct = (current_value - entry_debit) / (max_profit / 100)
             
             # Partial take profit milestone (+30% of max profit)
             if gain_pct >= RISK_LIMITS.partial_take_profit_pct and not position.get("partial_exit_taken"):
