@@ -116,18 +116,50 @@ async def root():
 
 @app.get("/api/portfolio")
 async def get_portfolio():
-    """Get current portfolio state."""
+    """Get current portfolio state from Alpaca."""
     summary = get_trade_summary()
+    
+    # Try to get real data from Alpaca
+    equity = 100_000.0
+    cash = 100_000.0
+    open_position_count = 0
+    real_unrealized_pnl = 0.0
+    
+    try:
+        from agents.data_service import _get_trading_client
+        client = _get_trading_client()
+        if client:
+            account = client.get_account()
+            equity = float(account.equity)
+            cash = float(account.cash)
+            
+            positions = client.get_all_positions()
+            open_position_count = len(positions)
+            real_unrealized_pnl = sum(float(p.unrealized_pl) for p in positions)
+    except Exception as e:
+        print(f"[Portfolio] Alpaca fetch failed: {e}")
+    
+    # Use real position count from Alpaca, fall back to audit trail
+    display_positions = open_position_count if open_position_count > 0 else (
+        summary.get("executed", 0) - summary.get("closed", 0)
+    )
+    
+    # Real P&L = realized from closed trades + unrealized from open positions
+    realized_pnl = summary.get("total_pnl", 0)
+    total_pnl = round(realized_pnl + real_unrealized_pnl, 2)
+    return_pct = round(total_pnl / equity * 100, 2) if equity > 0 else 0
+    
     return {
-        "equity": 100_000,
-        "cash": 100_000,
-        "total_pnl": summary.get("total_pnl", 0),
-        "return_pct": summary.get("return_pct", 0),
-        "open_positions": summary.get("executed", 0) - summary.get("closed", 0),
+        "equity": round(equity, 2),
+        "cash": round(cash, 2),
+        "total_pnl": total_pnl,
+        "unrealized_pnl": round(real_unrealized_pnl, 2),
+        "return_pct": return_pct,
+        "open_positions": display_positions,
         "total_trades": summary.get("total_proposals", 0),
         "win_rate": summary.get("win_rate", 0),
-        "risk_used": 0,
-        "risk_limit": RISK_LIMITS.max_portfolio_exposure * 100_000,
+        "risk_used": round(abs(real_unrealized_pnl), 2),
+        "risk_limit": RISK_LIMITS.max_portfolio_exposure * equity,
     }
 
 
