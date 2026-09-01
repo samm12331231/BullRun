@@ -77,6 +77,7 @@ class PositionMonitor:
             "current_value": proposal.get("net_debit"),
             "unrealized_pnl": 0,
             "peak_value": proposal.get("net_debit"),
+            "quantity": int(proposal.get("quantity", proposal.get("recommended_contracts", 1))),
             "greeks": self._combined_greeks(proposal.get("long_leg", {}), proposal.get("short_leg", {})),
             "stop_price": self._stop_price(proposal.get("net_debit", 0)),
             "stop_proximity_alert": False,
@@ -290,7 +291,7 @@ class PositionMonitor:
         entry = log_exit(position, reason, pnl)
 
         pnl_color = "green" if pnl >= 0 else "red"
-        console.print(f"[bold {pnl_color}][Monitor] Position #{position['trade_number']} closed: {reason} | P&L: ${pnl:+,.2f}[/{pnl_color}]")
+        console.print(f"[bold {pnl_color}][Monitor] Position #{position['trade_number']} closed: {reason} | P&L: ${pnl:+,.2f}[/bold {pnl_color}]")
 
         return entry
 
