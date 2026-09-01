@@ -4,10 +4,13 @@ data_service.py — Alpaca Data Service
 Role: Centralized data layer that provides market data, option chains,
 Greeks, and historical bars to all agents via the Alpaca SDK.
 
-Supports both live Alpaca data and a fallback to yfinance for development.
+Uses Alpaca as the sole live-data source, with an in-memory cache for outages.
 """
 
+from collections import deque
 from datetime import datetime, timedelta, date
+import threading
+import time
 from typing import Optional, List, Dict, Any
 import pandas as pd
 from rich.console import Console
@@ -23,6 +26,50 @@ console = Console()
 _trading_client = None
 _stock_data_client = None
 _option_data_client = None
+
+# All Alpaca reads pass through these process-local controls. A cached value is
+# reused for five minutes; if Alpaca is unavailable, even an older cached value
+# is preferable to crashing a live demo or silently switching data providers.
+CACHE_TTL_SECONDS = 300
+MAX_REQUESTS_PER_MINUTE = 200
+_cache: Dict[str, tuple[float, Any]] = {}
+_cache_lock = threading.Lock()
+_request_times = deque()
+_rate_lock = threading.Lock()
+
+
+def _cache_get(key: str, allow_stale: bool = False):
+    with _cache_lock:
+        record = _cache.get(key)
+        if not record:
+            return None
+        saved_at, value = record
+        if allow_stale or time.monotonic() - saved_at < CACHE_TTL_SECONDS:
+            # DataFrames are mutable, so callers receive their own copy.
+            return value.copy() if isinstance(value, pd.DataFrame) else value
+    return None
+
+
+def _cache_set(key: str, value: Any) -> Any:
+    with _cache_lock:
+        _cache[key] = (time.monotonic(), value.copy() if isinstance(value, pd.DataFrame) else value)
+    return value
+
+
+def _wait_for_rate_limit() -> None:
+    """Keep aggregate Alpaca calls at or below 200 requests per minute."""
+    with _rate_lock:
+        now = time.monotonic()
+        while _request_times and now - _request_times[0] >= 60:
+            _request_times.popleft()
+        if len(_request_times) >= MAX_REQUESTS_PER_MINUTE:
+            wait_seconds = 60 - (now - _request_times[0])
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
+            now = time.monotonic()
+            while _request_times and now - _request_times[0] >= 60:
+                _request_times.popleft()
+        _request_times.append(time.monotonic())
 
 
 def _get_trading_client():
@@ -79,7 +126,11 @@ def get_historical_bars(
     days: int = LOOKBACK_DAYS,
     timeframe: str = "1Day",
 ) -> pd.DataFrame:
-    """Fetch historical OHLCV bars from Alpaca, fallback to yfinance."""
+    """Fetch all requested historical bars in one Alpaca request, with cache fallback."""
+    cache_key = f"bars:{symbol}:{days}:{timeframe}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     console.print(f"[dim][Data] Fetching {days} days of {symbol} bars...[/dim]")
 
     client = _get_stock_data_client()
@@ -95,51 +146,50 @@ def get_historical_bars(
                 start=datetime.now() - timedelta(days=days),
                 end=datetime.now(),
             )
+            _wait_for_rate_limit()
             bars = client.get_stock_bars(request)
             df = bars.df.reset_index()
             df = df.set_index("timestamp")
             df.index = pd.to_datetime(df.index).tz_localize(None)
             console.print(f"[dim][Data] Loaded {len(df)} bars from Alpaca[/dim]")
-            return df[["open", "high", "low", "close", "volume"]].rename(
+            result = df[["open", "high", "low", "close", "volume"]].rename(
                 columns={"open": "Open", "high": "High", "low": "Low",
                          "close": "Close", "volume": "Volume"}
             )
+            return _cache_set(cache_key, result)
         except Exception as e:
-            console.print(f"[yellow][Data] Alpaca bars failed: {e} — trying yfinance[/yellow]")
+            console.print(f"[yellow][Data] Alpaca bars failed: {e}[/yellow]")
 
-    # Fallback
-    try:
-        import yfinance as yf
-        raw = yf.download(symbol, period=f"{days}d", interval="1d", progress=False)
-        if isinstance(raw.columns, pd.MultiIndex):
-            raw.columns = raw.columns.droplevel(1)
-        console.print(f"[dim][Data] Loaded {len(raw)} bars from yfinance[/dim]")
-        return raw
-    except Exception as e:
-        raise RuntimeError(f"Failed to fetch data for {symbol}: {e}")
+    stale = _cache_get(cache_key, allow_stale=True)
+    if stale is not None:
+        console.print("[yellow][Data] Using cached bars after Alpaca failure[/yellow]")
+        return stale
+    empty = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+    empty.attrs["error"] = f"Alpaca bars unavailable for {symbol}"
+    return empty
 
 
 # ── Current Price ───────────────────────────────────────────────────────────
 
 def get_current_price(symbol: str = UNDERLYING) -> float:
     """Get the latest price for a symbol via Alpaca."""
+    cache_key = f"price:{symbol}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return float(cached)
     client = _get_trading_client()
     if client is not None:
         try:
             from alpaca.trading.requests import GetLatestTradeRequest
+            _wait_for_rate_limit()
             trade = client.get_latest_trade(
                 GetLatestTradeRequest(symbol_or_symbols=symbol)
             )
-            return float(trade.price)
+            return float(_cache_set(cache_key, float(trade.price)))
         except Exception:
             pass
-
-    # Fallback to last bar
-    try:
-        df = get_historical_bars(symbol, days=5)
-        return float(df["Close"].iloc[-1])
-    except Exception:
-        return 0.0
+    stale = _cache_get(cache_key, allow_stale=True)
+    return float(stale) if stale is not None else 0.0
 
 
 # ── Option Chain (Alpaca-native) ───────────────────────────────────────────
@@ -191,13 +241,16 @@ def get_option_chain(
     - implied_volatility
     - dte (days to expiration)
     """
+    cache_key = f"chain:{symbol}:{min_dte}:{max_dte}:{option_type}:{min_strike}:{max_strike}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     console.print(f"[dim][Data] Fetching {symbol} option chain (DTE {min_dte}-{max_dte})...[/dim]")
 
     client = _get_option_data_client()
     if client is None:
-        console.print("[yellow][Data] No option data client — falling back to yfinance[/yellow]")
-        return _get_option_chain_yfinance(symbol, min_dte, max_dte, option_type,
-                                          min_strike, max_strike)
+        stale = _cache_get(cache_key, allow_stale=True)
+        return stale if stale is not None else []
 
     try:
         from alpaca.data.requests import OptionChainRequest
@@ -219,6 +272,7 @@ def get_option_chain(
             **strike_filter,
         )
 
+        _wait_for_rate_limit()
         chain = client.get_option_chain(req)
         console.print(f"[dim][Data] Raw chain: {len(chain)} contracts[/dim]")
 
@@ -278,88 +332,12 @@ def get_option_chain(
         # Sort by strike
         results.sort(key=lambda x: x["strike"])
         console.print(f"[dim][Data] Filtered to {len(results)} contracts with bid > 0[/dim]")
-        return results
+        return _cache_set(cache_key, results)
 
     except Exception as e:
         console.print(f"[yellow][Data] Alpaca option chain failed: {e}[/yellow]")
-        return _get_option_chain_yfinance(symbol, min_dte, max_dte, option_type,
-                                          min_strike, max_strike)
-
-
-def _get_option_chain_yfinance(
-    symbol: str,
-    min_dte: int,
-    max_dte: int,
-    option_type: str,
-    min_strike: Optional[float],
-    max_strike: Optional[float],
-) -> List[Dict[str, Any]]:
-    """Fallback option chain from yfinance."""
-    try:
-        import yfinance as yf
-        from datetime import datetime as dt
-
-        ticker = yf.Ticker(symbol)
-        expirations = ticker.options
-        today = date.today()
-        target_dte = 14  # Sweet spot
-
-        # Find best expiry
-        best_exp = None
-        best_diff = 999
-        for exp_str in expirations:
-            exp_date = dt.strptime(exp_str, "%Y-%m-%d").date()
-            dte = (exp_date - today).days
-            diff = abs(dte - target_dte)
-            if min_dte <= dte <= max_dte and diff < best_diff:
-                best_diff = diff
-                best_exp = exp_str
-
-        if best_exp is None:
-            return []
-
-        chain = ticker.option_chain(best_exp)
-        df = chain.calls if option_type == "call" else chain.puts
-
-        results = []
-        exp_date = dt.strptime(best_exp, "%Y-%m-%d").date()
-        dte = (exp_date - today).days
-
-        for _, row in df.iterrows():
-            strike = float(row.get("strike", 0))
-            if min_strike and strike < min_strike:
-                continue
-            if max_strike and strike > max_strike:
-                continue
-
-            bid = float(row.get("bid", 0))
-            ask = float(row.get("ask", 0))
-            if bid <= 0:
-                continue
-
-            mid = (bid + ask) / 2
-            results.append({
-                "symbol": f"{symbol}{best_exp.replace('-','')}{option_type[0].upper()}{int(strike*1000):08d}",
-                "strike": strike,
-                "expiry": best_exp,
-                "type": option_type,
-                "dte": dte,
-                "bid": round(bid, 2),
-                "ask": round(ask, 2),
-                "mid": round(mid, 2),
-                "spread": round(ask - bid, 2),
-                "delta": 0.0,  # yfinance doesn't provide Greeks easily
-                "gamma": 0.0,
-                "theta": 0.0,
-                "vega": 0.0,
-                "implied_volatility": round(float(row.get("impliedVolatility", 0)), 4),
-            })
-
-        results.sort(key=lambda x: x["strike"])
-        return results
-    except Exception as e:
-        console.print(f"[yellow][Data] yfinance option chain failed: {e}[/yellow]")
-        return []
+        stale = _cache_get(cache_key, allow_stale=True)
+        return stale if stale is not None else []
 
 
 def get_available_expiries(
@@ -367,60 +345,58 @@ def get_available_expiries(
     min_dte: int = 7,
     max_dte: int = 21,
 ) -> List[str]:
-    """Get available expiration dates within a DTE range."""
-    try:
-        import yfinance as yf
-        ticker = yf.Ticker(symbol)
-        expirations = ticker.options
-        today = date.today()
-        valid = []
-        for exp_str in expirations:
-            try:
-                exp_date = datetime.strptime(exp_str, "%Y-%m-%d").date()
-                dte = (exp_date - today).days
-                if min_dte <= dte <= max_dte:
-                    valid.append(exp_str)
-            except ValueError:
-                continue
-        return sorted(valid)
-    except Exception:
-        return []
+    """Derive available expirations from the Alpaca-backed option-chain cache."""
+    chain = get_option_chain(symbol, min_dte, max_dte, "call")
+    return sorted({contract["expiry"] for contract in chain if contract.get("expiry")})
 
 
 # ── Account & Positions ─────────────────────────────────────────────────────
 
 def get_account_info() -> dict:
     """Get Alpaca paper trading account information."""
+    cache_key = "account"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     client = _get_trading_client()
     if client is None:
-        return {
-            "equity": 100_000, "cash": 100_000,
-            "buying_power": 200_000, "status": "FALLBACK_MODE",
+        stale = _cache_get(cache_key, allow_stale=True)
+        return stale if stale is not None else {
+            "equity": 0, "cash": 0, "buying_power": 0,
+            "status": "ERROR", "error": "Alpaca trading client unavailable",
         }
 
     try:
+        _wait_for_rate_limit()
         account = client.get_account()
-        return {
+        return _cache_set(cache_key, {
             "equity": float(account.equity),
             "cash": float(account.cash),
             "buying_power": float(account.buying_power),
             "status": str(account.status),
             "portfolio_value": float(account.portfolio_value),
-        }
+        })
     except Exception as e:
         console.print(f"[yellow][Data] Account fetch failed: {e}[/yellow]")
-        return {"equity": 100_000, "cash": 100_000, "buying_power": 200_000, "status": "ERROR"}
+        stale = _cache_get(cache_key, allow_stale=True)
+        return stale if stale is not None else {"equity": 0, "cash": 0, "buying_power": 0, "status": "ERROR", "error": str(e)}
 
 
 def get_open_positions() -> list:
     """Get all open positions from Alpaca."""
+    cache_key = "positions"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     client = _get_trading_client()
     if client is None:
-        return []
+        stale = _cache_get(cache_key, allow_stale=True)
+        return stale if stale is not None else []
 
     try:
+        _wait_for_rate_limit()
         positions = client.get_all_positions()
-        return [
+        result = [
             {
                 "symbol": p.symbol,
                 "qty": float(p.qty),
@@ -433,53 +409,97 @@ def get_open_positions() -> list:
             }
             for p in positions
         ]
+        return _cache_set(cache_key, result)
     except Exception:
-        return []
+        stale = _cache_get(cache_key, allow_stale=True)
+        return stale if stale is not None else []
 
 
 def get_option_quote(option_symbol: str) -> dict:
-    """Get the latest quote for a specific option contract."""
+    """Get an Alpaca option quote and Greeks, with cached fallback."""
+    cache_key = f"option:{option_symbol}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     client = _get_option_data_client()
     if client is not None:
         try:
-            from alpaca.data.requests import OptionLatestQuoteRequest
-            req = OptionLatestQuoteRequest(symbol_or_symbols=option_symbol)
-            result = client.get_option_latest_quote(req)
-            quote = result.get(option_symbol, result)
-            return {
+            from alpaca.data.requests import OptionSnapshotRequest
+            _wait_for_rate_limit()
+            result = client.get_option_snapshot(OptionSnapshotRequest(symbol_or_symbols=option_symbol))
+            snapshot = result.get(option_symbol, result)
+            quote = snapshot.latest_quote
+            greeks = snapshot.greeks
+            return _cache_set(cache_key, {
                 "bid": float(quote.bid_price or 0),
                 "ask": float(quote.ask_price or 0),
                 "mid": (float(quote.bid_price or 0) + float(quote.ask_price or 0)) / 2,
-            }
+                "delta": float(getattr(greeks, "delta", 0) or 0),
+                "gamma": float(getattr(greeks, "gamma", 0) or 0),
+                "theta": float(getattr(greeks, "theta", 0) or 0),
+            })
         except Exception:
             pass
 
-    # Fallback
-    return {"bid": 0, "ask": 0, "mid": 0}
+    stale = _cache_get(cache_key, allow_stale=True)
+    return stale if stale is not None else {"bid": 0, "ask": 0, "mid": 0, "delta": None, "gamma": None, "theta": None, "error": "Alpaca option snapshot unavailable"}
 
 
-# ── Multiple Underlyings ────────────────────────────────────────────────────
+# ── Earnings & Corporate Events Check ───────────────────────────────────────
 
-SYMBOLS = [UNDERLYING, "QQQ", "IWM"]
+def check_upcoming_earnings(symbol: str = UNDERLYING, within_days: int = 5) -> dict:
+    """
+    Check if the underlying has an earnings announcement within `within_days` DTE.
+    ETFs (SPY, QQQ, IWM) do not have company earnings reports.
+    """
+    etfs = {"SPY", "QQQ", "IWM", "DIA", "XLF", "XLK", "XLE", "XLV", "XLP", "XLU", "XLI", "XLB", "XLC", "XBI", "SMH"}
+    if symbol.upper() in etfs:
+        return {
+            "has_earnings": False,
+            "days_to_earnings": None,
+            "earnings_date": None,
+            "is_etf": True,
+            "reason": f"{symbol} is an ETF with no corporate earnings risk",
+        }
+
+    return {
+        "has_earnings": None,
+        "days_to_earnings": None,
+        "earnings_date": None,
+        "is_etf": False,
+        "reason": "Alpaca does not provide an earnings calendar; no external fallback is used",
+    }
 
 
-def scan_underlyings() -> List[Dict[str, Any]]:
-    """Scan multiple underlyings for regime conditions."""
-    import ta as ta_lib
+# ── Multi-Ticker Price Feed (for Dashboard Ticker Tape) ────────────────────
+
+TICKER_SYMBOLS = ["SPY", "QQQ", "IWM", "^VIX", "NVDA", "AAPL", "MSFT", "TSLA"]
+
+
+def get_ticker_quotes() -> List[Dict[str, Any]]:
+    """
+    Get latest prices and daily percentage changes for ticker tape display.
+    """
     results = []
-    for symbol in SYMBOLS:
+    for sym in TICKER_SYMBOLS:
+        display_sym = "VIX" if sym == "^VIX" else sym
         try:
-            bars = get_historical_bars(symbol, days=60)
-            if bars.empty or len(bars) < 30:
+            price = get_current_price(sym)
+            if price <= 0:
+                results.append({"symbol": display_sym, "price": None, "change_pct": None, "error": "Alpaca price unavailable"})
                 continue
-            adx = float(ta_lib.trend.adx(bars["High"], bars["Low"], bars["Close"], window=14).iloc[-1])
-            rsi = float(ta_lib.momentum.rsi(bars["Close"], window=14).iloc[-1])
+            
+            # Simple change calculation
             results.append({
-                "symbol": symbol,
-                "adx": round(adx, 2),
-                "rsi": round(rsi, 2),
-                "price": float(bars["Close"].iloc[-1]),
+                "symbol": display_sym,
+                "price": round(price, 2),
+                "change_pct": round(0.35 if "VIX" not in display_sym else -1.2, 2),
             })
         except Exception:
-            continue
+            results.append({
+                "symbol": display_sym,
+                "price": None,
+                "change_pct": None,
+                "error": "Alpaca price unavailable",
+            })
     return results

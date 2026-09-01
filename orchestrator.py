@@ -170,6 +170,8 @@ def run_pipeline() -> dict:
                 p.get("max_loss", 0) or 0 for p in monitor.get_open_positions()
             ),
             "available_cash": 100_000,
+            "equity": 100_000,
+            "open_positions": monitor.get_open_positions(),
         }
         risk_check = risk_engine.risk_engine.check(proposal, portfolio_state)
         results["risk_check"] = risk_check

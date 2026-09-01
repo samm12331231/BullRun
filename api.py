@@ -230,6 +230,16 @@ async def get_current_regime():
         return {"regime": "UNKNOWN", "error": str(e)}
 
 
+@app.get("/api/market/tickers")
+async def get_market_tickers():
+    """Get real-time ticker quotes for the Bloomberg ticker tape."""
+    try:
+        from agents.data_service import get_ticker_quotes
+        return {"tickers": get_ticker_quotes()}
+    except Exception as e:
+        return {"tickers": []}
+
+
 @app.get("/api/market/{symbol}")
 async def get_market_data(symbol: str):
     """Get current market data for a symbol."""

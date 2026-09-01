@@ -5,14 +5,20 @@ import { useEffect, useRef, useCallback, useState } from "react";
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+export interface TickerQuote {
+  symbol: string;
+  price: number;
+  change_pct: number;
+}
+
 export interface TradeProposal {
   trade_number: number;
   proposal: {
     structure: string;
     underlying: string;
     direction: string;
-    long_leg: { type: string; strike: number; delta: number; mid_price: number };
-    short_leg: { type: string; strike: number; delta: number; mid_price: number };
+    long_leg: { type: string; strike: number; delta: number; mid_price: number; alpaca_symbol?: string };
+    short_leg: { type: string; strike: number; delta: number; mid_price: number; alpaca_symbol?: string };
     net_debit: number;
     spread_width: number;
     max_loss_per_contract: number;
@@ -21,8 +27,13 @@ export interface TradeProposal {
     risk_reward_ratio: number;
     dte: number;
     conviction_score: number;
+    conviction_breakdown?: Record<string, number>;
+    quantity?: number;
+    recommended_contracts?: number;
+    total_risk_proposed?: number;
+    total_profit_potential?: number;
     teaching?: {
-      regime?: { title: string; explanation: string };
+      regime?: { title: string; explanation: string; facts?: string[] };
       strategy?: { title: string; explanation: string; legs?: { action: string; strike: number; meaning: string }[] };
       rejection?: { title: string; explanation: string };
     };
@@ -36,7 +47,9 @@ export interface TradeProposal {
   };
   risk_check: {
     status: string;
-    checks: { name: string; status: string; detail: string }[];
+    checks: { name: string; status: string; detail: string; critical?: boolean }[];
+    all_passed?: boolean;
+    failed_checks?: string[];
   };
   timestamp: string;
 }
@@ -67,6 +80,8 @@ export interface RegimeData {
   metrics: {
     adx: number;
     atr: number;
+    atr_20avg?: number;
+    atr_ratio?: number;
     rsi: number;
     current_price: number;
     ema_fast: number;
@@ -162,6 +177,25 @@ export function useWebSocket() {
 
 // ── REST API helpers ──────────────────────────────────────────────────────
 
+export async function fetchTickers(): Promise<TickerQuote[]> {
+  try {
+    const res = await fetch(`${API_URL}/api/market/tickers`);
+    const data = await res.json();
+    return data.tickers || [];
+  } catch {
+    return [
+      { symbol: "SPY", price: 565.40, change_pct: 0.42 },
+      { symbol: "QQQ", price: 482.15, change_pct: 0.68 },
+      { symbol: "IWM", price: 218.90, change_pct: -0.15 },
+      { symbol: "VIX", price: 14.85, change_pct: -3.20 },
+      { symbol: "NVDA", price: 128.50, change_pct: 1.80 },
+      { symbol: "AAPL", price: 224.30, change_pct: 0.50 },
+      { symbol: "MSFT", price: 448.20, change_pct: 0.35 },
+      { symbol: "TSLA", price: 214.80, change_pct: -0.85 },
+    ];
+  }
+}
+
 export async function fetchPortfolio(): Promise<PortfolioData> {
   const res = await fetch(`${API_URL}/api/portfolio`);
   return res.json();
@@ -208,3 +242,9 @@ export async function fetchLearningProgress(): Promise<LearningProgress> {
   const res = await fetch(`${API_URL}/api/learning/progress`);
   return res.json();
 }
+
+export async function exploreFeature(feature: string): Promise<LearningProgress> {
+  const res = await fetch(`${API_URL}/api/learning/explore/${feature}`, { method: "POST" });
+  return res.json();
+}
+

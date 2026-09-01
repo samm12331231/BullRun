@@ -1,294 +1,279 @@
-"""
-execution.py — Alpaca Execution Layer
+"""Alpaca execution layer with atomic multi-leg fill verification.
 
-Role: Takes an approved trade proposal and executes it on Alpaca paper trading
-via the MCP server (primary) or alpaca-py SDK (fallback).
-
-This is the "hands" of BullRun — it places the actual orders.
-
-IMPORTANT: This only runs AFTER human consent is received.
+An approved spread is submitted as one MLEG limit order. BullRun never
+reports a live spread as executed until Alpaca confirms every intended leg is
+fully filled. DRY_RUN is deliberately enabled by default for demo safety.
 """
 
 import os
-import json
-from datetime import datetime, timedelta
+import time
+from datetime import datetime, timedelta, timezone
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+
 from config import (
     ALPACA_API_KEY, ALPACA_SECRET_KEY,
-    ALPACA_BASE_URL, AUDIT_LOG,
+    EXECUTION_MAX_RETRIES, EXECUTION_BACKOFF_BASE
 )
+
+DRY_RUN = os.getenv("DRY_RUN", "true").strip().lower() in {"1", "true", "yes", "on"}
+POLL_INTERVAL_SECONDS = 2
+POLL_TIMEOUT_SECONDS = 60
 
 console = Console()
 
 
 def run(proposal: dict, consent: dict, trade_number: int) -> dict:
-    """
-    Main entry point for the Execution Layer.
-    Places the approved order on Alpaca paper trading.
-
-    Returns:
-        dict with order status, order IDs, and execution details
-    """
-
+    """Submit an approved defined-risk spread and log every outcome."""
     if consent.get("decision") != "APPROVE":
-        console.print("[dim][Execution] Trade not approved — skipping execution[/dim]")
-        return {
-            "status": "SKIPPED",
-            "reason": "Trade not approved",
-            "timestamp": datetime.now().isoformat(),
-        }
+        result = _result("SKIPPED", error="Trade not approved")
+        _audit_attempt(result, trade_number, proposal, consent)
+        return result
 
-    console.print("[bold cyan][Execution][/bold cyan] Submitting order to Alpaca...")
-
-    structure = proposal.get("structure", "")
-    underlying = proposal.get("underlying", "SPY")
-
-    # ── Build option symbols ────────────────────────────────────────────
-    # Use Alpaca symbols directly from the quant agent if available
-    long_leg = proposal.get("long_leg", {})
-    short_leg = proposal.get("short_leg", {})
-
-    long_sym = long_leg.get("alpaca_symbol", "")
-    short_sym = short_leg.get("alpaca_symbol", "")
-
-    # Fallback: construct from strike/expiry if symbols missing
-    if not long_sym or not short_sym:
-        expiry = _format_expiry(proposal)
-        long_type_code = "C" if long_leg.get("type", "CALL") == "CALL" else "P"
-        short_type_code = "C" if short_leg.get("type", "CALL") == "CALL" else "P"
-        long_sym = long_sym or f"{underlying}{expiry}{long_type_code}{int(long_leg.get('strike', 0)):08d}"
-        short_sym = short_sym or f"{underlying}{expiry}{short_type_code}{int(short_leg.get('strike', 0)):08d}"
-
-    order_details = {
-        "underlying": underlying,
-        "structure": structure,
-        "expiry": proposal.get("expiry", ""),
-        "long_leg": {
-            "symbol": long_sym,
-            "strike": long_leg.get("strike"),
-            "type": long_leg.get("type"),
-            "side": "buy",
-            "quantity": 1,
-        },
-        "short_leg": {
-            "symbol": short_sym,
-            "strike": short_leg.get("strike"),
-            "type": short_leg.get("type"),
-            "side": "sell",
-            "quantity": 1,
-        },
-        "net_debit": proposal.get("net_debit"),
-        "max_loss": proposal.get("max_loss_per_contract"),
-    }
-
-    console.print(f"[dim]Long: {long_sym} (buy)[/dim]")
-    console.print(f"[dim]Short: {short_sym} (sell)[/dim]")
-    console.print(f"[dim]Net debit: ${order_details['net_debit']:.2f}[/dim]")
-
-    # ── Try MCP first, fallback to alpaca-py ─────────────────────────────
     try:
-        result = _execute_via_mcp(order_details)
-    except Exception as e:
-        console.print(f"[yellow][Execution] MCP failed: {e} — trying alpaca-py fallback[/yellow]")
-        try:
-            result = _execute_via_sdk(order_details)
-        except Exception as e2:
-            console.print(f"[red][Execution] SDK also failed: {e2}[/red]")
-            result = {
-                "status": "FAILED",
-                "error": str(e2),
-                "timestamp": datetime.now().isoformat(),
-            }
+        order_details = _build_order_details(proposal)
+    except ValueError as exc:
+        result = _result("FAILED", error=str(exc))
+        _audit_attempt(result, trade_number, proposal, consent)
+        return result
 
-    # ── Log execution ────────────────────────────────────────────────────
-    _log_execution(trade_number, order_details, result, consent)
-
-    # ── Display result ───────────────────────────────────────────────────
-    if result.get("status") in ("FILLED", "SUBMITTED"):
-        console.print(Panel(
-            Text(f"  Order submitted successfully!\n"
-                 f"  Order ID: {result.get('order_id', 'N/A')}\n"
-                 f"  Status: {result.get('status', 'N/A')}\n", style="bold green"),
-            title=Text("BULLRUN", style="bold gold1") + Text(" — EXECUTED", style="bold green"),
-            border_style="green",
-            width=62,
-        ))
+    if DRY_RUN:
+        result = _dry_run(order_details)
     else:
-        console.print(Panel(
-            Text(f"  Order failed: {result.get('error', 'Unknown error')}\n", style="bold red"),
-            title=Text("BULLRUN", style="bold gold1") + Text(" — FAILED", style="bold red"),
-            border_style="red",
-            width=62,
-        ))
+        result = _execute_with_retry(order_details)
 
+    _audit_attempt(result, trade_number, proposal, consent, order_details)
+    _render_result(result)
     return result
 
 
-def _execute_via_mcp(order_details: dict) -> dict:
-    """Execute order via Alpaca MCP server."""
+def _build_order_details(proposal: dict) -> dict:
+    long_leg = proposal.get("long_leg") or {}
+    short_leg = proposal.get("short_leg") or {}
+    if not long_leg.get("strike") or not short_leg.get("strike"):
+        raise ValueError("Invalid spread: both option strikes are required")
+    if float(proposal.get("net_debit") or 0) <= 0:
+        raise ValueError("Invalid spread: a positive net debit is required")
+    if _is_expired(proposal.get("expiry", "")):
+        raise ValueError("Option contract expired; refusing order submission")
 
-    console.print("[dim]Attempting MCP execution...[/dim]")
+    underlying = proposal.get("underlying", "SPY")
+    expiry = _format_expiry(proposal)
+    long_symbol = long_leg.get("alpaca_symbol") or _option_symbol(underlying, expiry, long_leg)
+    short_symbol = short_leg.get("alpaca_symbol") or _option_symbol(underlying, expiry, short_leg)
+    qty = int(proposal.get("quantity", proposal.get("recommended_contracts", 1)))
 
-    long_sym = order_details["long_leg"]["symbol"]
-    short_sym = order_details["short_leg"]["symbol"]
-
-    mcp_command = {
-        "tool": "place_option_market_order",
-        "params": {
-            "order_legs": [
-                {
-                    "symbol": long_sym,
-                    "qty": str(order_details["long_leg"]["quantity"]),
-                    "side": "buy",
-                },
-                {
-                    "symbol": short_sym,
-                    "qty": str(order_details["short_leg"]["quantity"]),
-                    "side": "sell",
-                },
-            ],
-            "order_type": "limit",
-            "limit_price": str(order_details["net_debit"]),
-            "time_in_force": "day",
-        },
+    return {
+        "underlying": underlying,
+        "structure": proposal.get("structure", "SPREAD"),
+        "expiry": proposal.get("expiry", ""),
+        "net_debit": round(float(proposal["net_debit"]), 2),
+        "max_loss": proposal.get("max_loss_per_contract"),
+        "quantity": qty,
+        "legs": [
+            {"symbol": long_symbol, "side": "buy", "quantity": qty},
+            {"symbol": short_symbol, "side": "sell", "quantity": qty},
+        ],
     }
 
-    console.print(f"[dim]MCP command: {json.dumps(mcp_command, indent=2)}[/dim]")
 
-    # For now, simulate MCP execution
-    # In production, this would call the actual MCP server via its SDK
-    console.print("[yellow][Execution] MCP server integration — using SDK fallback for demo[/yellow]")
-    raise NotImplementedError("MCP server integration pending — falling back to SDK")
+def _execute_with_retry(order_details: dict) -> dict:
+    """Execute order with exponential backoff retry for transient network / rate limits."""
+    last_error = "Unknown error"
+    for attempt in range(1, EXECUTION_MAX_RETRIES + 1):
+        try:
+            console.print(f"[dim][Execution] Attempt {attempt}/{EXECUTION_MAX_RETRIES} submitting multi-leg order...[/dim]")
+            return _execute_via_sdk(order_details)
+        except Exception as exc:
+            last_error = _classify_error(exc)
+            console.print(f"[yellow][Execution] Attempt {attempt} failed: {last_error}[/yellow]")
+            if attempt < EXECUTION_MAX_RETRIES:
+                sleep_time = EXECUTION_BACKOFF_BASE ** attempt
+                console.print(f"[dim][Execution] Backing off for {sleep_time:.1f}s before retry...[/dim]")
+                time.sleep(sleep_time)
+
+    return _result("FAILED", error=f"Max retries ({EXECUTION_MAX_RETRIES}) exceeded. Last error: {last_error}")
+
+
+
+def _option_symbol(underlying: str, expiry: str, leg: dict) -> str:
+    option_type = "C" if leg.get("type", "CALL") == "CALL" else "P"
+    strike = int(round(float(leg["strike"]) * 1000))
+    return f"{underlying}{expiry}{option_type}{strike:08d}"
 
 
 def _execute_via_sdk(order_details: dict) -> dict:
-    """Execute order via alpaca-py SDK (fallback)."""
-
-    console.print("[dim]Executing via alpaca-py SDK...[/dim]")
-
+    """Submit one Alpaca MLEG order, then require both legs to fill."""
     try:
         from alpaca.trading.client import TradingClient
-        from alpaca.trading.requests import LimitOrderRequest
-        from alpaca.trading.enums import OrderSide, TimeInForce
+        from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce
+        from alpaca.trading.requests import LimitOrderRequest, OptionLegRequest
 
-        client = TradingClient(
-            api_key=ALPACA_API_KEY,
-            secret_key=ALPACA_SECRET_KEY,
-            paper=True,
-        )
-
+        client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
         account = client.get_account()
-        console.print(f"[dim]Account equity: ${float(account.equity):,.2f}[/dim]")
+        buying_power = float(account.buying_power)
+        required_cash = order_details["net_debit"] * 100
+        if buying_power < required_cash:
+            return _result("FAILED", error=f"Insufficient buying power: ${buying_power:,.2f} available; ${required_cash:,.2f} required")
 
-        long_sym = order_details["long_leg"]["symbol"]
-        short_sym = order_details["short_leg"]["symbol"]
-
-        # Calculate limit prices for each leg
-        net_debit = order_details["net_debit"]
-        long_mid = net_debit * 0.6  # Approximate long leg mid
-        short_mid = net_debit * 0.4  # Approximate short leg mid
-
-        # Buy long leg
-        long_order = client.submit_order(
-            LimitOrderRequest(
-                symbol=long_sym,
-                qty=order_details["long_leg"]["quantity"],
-                side=OrderSide.BUY,
-                limit_price=round(long_mid + 0.05, 2),  # Slightly above mid for fill
-                time_in_force=TimeInForce.DAY,
+        legs = [
+            OptionLegRequest(
+                symbol=leg["symbol"], ratio_qty=leg["quantity"],
+                side=OrderSide.BUY if leg["side"] == "buy" else OrderSide.SELL,
             )
+            for leg in order_details["legs"]
+        ]
+        request = LimitOrderRequest(
+            qty=1,
+            limit_price=order_details["net_debit"],
+            time_in_force=TimeInForce.DAY,
+            order_class=OrderClass.MLEG,
+            legs=legs,
         )
-        console.print(f"[green]Long leg submitted: {long_order.id}[/green]")
+        order = client.submit_order(request)
+        order_id = str(order.id)
+        console.print(f"[cyan][Execution] MLEG order submitted: {order_id}[/cyan]")
+        return _poll_for_full_fill(client, order_id, order_details)
+    except Exception as exc:
+        return _result("FAILED", error=_classify_error(exc))
 
-        # Sell short leg
-        short_order = client.submit_order(
-            LimitOrderRequest(
-                symbol=short_sym,
-                qty=order_details["short_leg"]["quantity"],
-                side=OrderSide.SELL,
-                limit_price=round(short_mid - 0.05, 2),  # Slightly below mid for fill
-                time_in_force=TimeInForce.DAY,
-            )
-        )
-        console.print(f"[green]Short leg submitted: {short_order.id}[/green]")
 
-        return {
-            "status": "SUBMITTED",
-            "long_order_id": str(long_order.id),
-            "short_order_id": str(short_order.id),
-            "order_id": f"{long_order.id}/{short_order.id}",
-            "long_symbol": long_sym,
-            "short_symbol": short_sym,
-            "timestamp": datetime.now().isoformat(),
-        }
+def _poll_for_full_fill(client, order_id: str, order_details: dict) -> dict:
+    """Poll Alpaca every two seconds and cancel any non-complete spread."""
+    deadline = time.monotonic() + POLL_TIMEOUT_SECONDS
+    last_status = "submitted"
+    while time.monotonic() < deadline:
+        try:
+            order = client.get_order_by_id(order_id)
+            last_status = _status_value(getattr(order, "status", "unknown"))
+            if _all_legs_filled(order, order_details["legs"]):
+                receipt = _receipt(order, order_details)
+                return _result("FILLED", order_id=order_id, receipt=receipt, legs=receipt["legs"])
+            if last_status in {"canceled", "rejected", "expired", "suspended", "stopped"}:
+                return _result("FAILED", order_id=order_id, error=f"Order {last_status}; both legs were not filled")
+        except Exception as exc:
+            return _result("FAILED", order_id=order_id, error=_classify_error(exc))
+        time.sleep(POLL_INTERVAL_SECONDS)
 
-    except ImportError:
-        console.print("[red][Execution] alpaca-py not installed — running in DRY RUN mode[/red]")
-        return _dry_run(order_details)
-    except Exception as e:
-        console.print(f"[red][Execution] SDK error: {e} — running in DRY RUN mode[/red]")
-        return _dry_run(order_details)
+    try:
+        client.cancel_order_by_id(order_id)
+        return _result("CANCELED", order_id=order_id, error=f"Not fully filled after {POLL_TIMEOUT_SECONDS}s; cancellation requested", last_status=last_status)
+    except Exception as exc:
+        return _result("FAILED", order_id=order_id, error=f"Not fully filled after {POLL_TIMEOUT_SECONDS}s and cancellation failed: {_classify_error(exc)}", last_status=last_status)
+
+
+def _all_legs_filled(order, expected_legs: list[dict]) -> bool:
+    """Verify each requested symbol has its required filled quantity."""
+    filled = {}
+    for leg in getattr(order, "legs", None) or []:
+        symbol = getattr(leg, "symbol", None)
+        qty = float(getattr(leg, "filled_qty", 0) or 0)
+        if symbol:
+            filled[symbol] = qty
+    return bool(filled) and all(filled.get(leg["symbol"], 0) >= float(leg["quantity"]) for leg in expected_legs)
+
+
+def _receipt(order, order_details: dict) -> dict:
+    legs = []
+    for expected in order_details["legs"]:
+        matching = next((leg for leg in (getattr(order, "legs", None) or []) if getattr(leg, "symbol", None) == expected["symbol"]), None)
+        legs.append({
+            "symbol": expected["symbol"], "side": expected["side"],
+            "filled_qty": float(getattr(matching, "filled_qty", 0) or 0),
+            "fill_price": _float_or_none(getattr(matching, "filled_avg_price", None)),
+        })
+    return {
+        "order_id": str(order.id), "fill_price": _float_or_none(getattr(order, "filled_avg_price", None)),
+        "fill_time": _iso(getattr(order, "filled_at", None)),
+        "commissions": _float_or_none(getattr(order, "commission", None)) or 0.0, "legs": legs,
+    }
 
 
 def _dry_run(order_details: dict) -> dict:
-    """Simulate order execution for demo/testing."""
-
-    order_id = f"DRY-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    console.print("[yellow][Execution] DRY RUN — order not actually placed[/yellow]")
-    console.print("[dim]Would have placed:[/dim]")
-    console.print(f"[dim]  BUY  {order_details['long_leg']['symbol']} x{order_details['long_leg']['quantity']}[/dim]")
-    console.print(f"[dim]  SELL {order_details['short_leg']['symbol']} x{order_details['short_leg']['quantity']}[/dim]")
-    console.print(f"[dim]  Net debit: ${order_details['net_debit']:.2f}[/dim]")
-
-    return {
-        "status": "DRY_RUN",
-        "order_id": order_id,
-        "long_symbol": order_details["long_leg"]["symbol"],
-        "short_symbol": order_details["short_leg"]["symbol"],
-        "timestamp": datetime.now().isoformat(),
+    order_id = f"DRY-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    receipt = {
+        "order_id": order_id, "fill_price": order_details["net_debit"],
+        "fill_time": datetime.now(timezone.utc).isoformat(), "commissions": 0.0,
+        "legs": [{**leg, "filled_qty": leg["quantity"], "fill_price": None} for leg in order_details["legs"]],
     }
+    console.print("[yellow][Execution] DRY_RUN=true — no Alpaca order submitted[/yellow]")
+    return _result("DRY_RUN", order_id=order_id, receipt=receipt, legs=receipt["legs"])
+
+
+def _audit_attempt(result: dict, trade_number: int, proposal: dict, consent: dict, order_details: dict | None = None) -> None:
+    """Use the hash-chained audit API for every attempt and its receipt."""
+    try:
+        from audit import log_execution, log_event
+        log_execution(result, trade_number)
+        log_event("EXECUTION_RECEIPT", {
+            "trade_number": trade_number, "status": result.get("status"), "order_id": result.get("order_id"),
+            "error": result.get("error"), "structure": proposal.get("structure"), "underlying": proposal.get("underlying"),
+            "consent_decision": consent.get("decision"), "receipt": result.get("receipt"),
+            "legs": result.get("legs") or (order_details or {}).get("legs", []),
+        })
+    except Exception as exc:
+        console.print(f"[yellow][Audit] Execution audit failed: {exc}[/yellow]")
+
+
+def _render_result(result: dict) -> None:
+    success = result.get("status") in {"FILLED", "DRY_RUN"}
+    text = f"Order ID: {result.get('order_id', 'N/A')}\nStatus: {result.get('status', 'N/A')}"
+    if result.get("receipt"):
+        receipt = result["receipt"]
+        text += f"\nFill price: ${receipt.get('fill_price', 0):.2f}\nFill time: {receipt.get('fill_time')}\nCommissions: ${receipt.get('commissions', 0):.2f}"
+    if result.get("error"):
+        text += f"\nReason: {result['error']}"
+    console.print(Panel(Text(text, style="bold green" if success else "bold red"), title="BULLRUN — EXECUTION", border_style="green" if success else "red", width=62))
+
+
+def _classify_error(exc: Exception) -> str:
+    message = str(exc).lower()
+    if "buying power" in message or "insufficient" in message:
+        return f"Insufficient buying power: {exc}"
+    if "market" in message and ("closed" in message or "not open" in message):
+        return f"Market is closed: {exc}"
+    if "not found" in message or "invalid symbol" in message or "asset" in message:
+        return f"Symbol not found: {exc}"
+    if "expired" in message or "expiration" in message:
+        return f"Option contract expired: {exc}"
+    return f"Alpaca execution error: {exc}"
+
+
+def _is_expired(expiry: str) -> bool:
+    if not expiry:
+        return False
+    try:
+        return datetime.strptime(expiry, "%Y-%m-%d").date() < datetime.now().date()
+    except ValueError:
+        return False
 
 
 def _format_expiry(proposal: dict) -> str:
-    """Format expiration date for OCC option symbol format (YYMMDD)."""
-
     expiry = proposal.get("expiry", "")
     if expiry:
         try:
-            dt = datetime.strptime(expiry, "%Y-%m-%d")
-            return dt.strftime("%y%m%d")
+            return datetime.strptime(expiry, "%Y-%m-%d").strftime("%y%m%d")
         except ValueError:
             pass
-
-    # If no expiry in proposal, calculate from DTE
-    dte = proposal.get("dte", 14)
-    future = datetime.now() + timedelta(days=dte)
-    return future.strftime("%y%m%d")
+    return (datetime.now() + timedelta(days=int(proposal.get("dte", 14)))).strftime("%y%m%d")
 
 
-def _log_execution(trade_number: int, order_details: dict, result: dict, consent: dict) -> None:
-    """Log execution to audit trail."""
+def _result(status: str, **kwargs) -> dict:
+    return {"status": status, "timestamp": datetime.now(timezone.utc).isoformat(), **kwargs}
 
-    entry = {
-        "timestamp": datetime.now().isoformat(),
-        "event": "EXECUTION",
-        "trade_number": trade_number,
-        "structure": order_details.get("structure"),
-        "underlying": order_details.get("underlying"),
-        "expiry": order_details.get("expiry"),
-        "long_symbol": order_details["long_leg"]["symbol"],
-        "short_symbol": order_details["short_leg"]["symbol"],
-        "net_debit": order_details.get("net_debit"),
-        "max_loss": order_details.get("max_loss"),
-        "status": result.get("status"),
-        "order_id": result.get("order_id"),
-        "consent_decision": consent.get("decision"),
-    }
 
+def _status_value(status) -> str:
+    return str(getattr(status, "value", status)).lower()
+
+
+def _float_or_none(value):
     try:
-        with open(AUDIT_LOG, "a") as f:
-            f.write(json.dumps(entry) + "\n")
-    except Exception as e:
-        console.print(f"[yellow][Audit] Failed to log execution: {e}[/yellow]")
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _iso(value) -> str:
+    return value.isoformat() if value else datetime.now(timezone.utc).isoformat()
