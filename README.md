@@ -17,7 +17,7 @@ BullRun is a multi-agent trading system that:
 
 1. **Scout** scans SPY market regime (BULLISH/BEARISH/NEUTRAL/VOLATILE)
 2. **Quant** selects defined-risk options spreads (bull call / bear put)
-3. **Risk Engine** validates against 8 deterministic rules (PASS/REJECT only)
+3. **Risk Engine** validates against 12 deterministic rules (PASS/REJECT only)
 4. **CIO** generates plain-English trade thesis via GPT-4o-mini
 5. **Teaching Engine** explains every decision to beginners
 6. **Trade Card** displays the proposal in beginner-friendly language
@@ -41,7 +41,7 @@ BullRun combines multiple independent signals to generate options trades, but th
 ```
 Scout → Quant → Risk Engine → CIO → Teaching Engine → Trade Card → Consent → Alpaca → Monitor
   ↓        ↓         ↓          ↓           ↓              ↓           ↓          ↓        ↓
-Regime  Structure  8 checks   Thesis    Explains        Plain-     Approve   Execute  Auto-exit
+Regime  Structure  12 checks   Thesis    Explains        Plain-     Approve   Execute  Auto-exit
                        ↓          ↓      everything                ↓
                   2% Rule    Bounded      ↓
                   Daily Loss  Risk    Learner Level
@@ -62,16 +62,20 @@ BullRun doesn't just trade — it teaches. Every decision includes:
 | **Trade Journal** | Post-trade learning reports (predicted vs actual) |
 | **Progression Tracking** | Beginner → Intermediate → Advanced based on features explored |
 
-## 📊 Risk Engine (8 Hardcoded Checks)
+## 📊 Risk Engine (12 Hardcoded Checks)
 
 | Check | Rule | Why |
 |-------|------|-----|
-| **2% Rule** | ≤ $2,000/trade | No single trade can blow up the account |
+| **2% Rule** | ≤ $2,000/trade total risk | No single trade can blow up the account |
+| **Conviction Sizing** | Scales by confidence (50-100% of cap) | Higher conviction = larger position |
 | **Exposure Cap** | ≤ $6,000 total | Max 3 positions × $2K = 6% total risk |
 | **Max Positions** | < 3 concurrent | Diversification without over-complication |
-| **Daily Loss** | ≤ $3,000/day | Stop trading after 3% daily loss |
-| **Drawdown Brake** | ≤ 10% ($10K) | Halt all trading if account drops 10% |
-| **Liquidity** | Bid-ask ≤ $0.15 | Ensure we can enter/exit cleanly |
+| **Correlation Guard** | No same-direction on correlated ETFs | SPY + QQQ = same bet, rejected |
+| **Time-of-Day** | No entries first/last 30 min | Avoid opening/closing volatility spikes |
+| **Earnings Proximity** | No trades within 5 DTE of earnings | Avoid binary event risk |
+| **Daily Loss** | ≤ $3,000/day (incl. unrealized) | Stop trading after 3% daily loss |
+| **Drawdown Brake** | ≤ 10% peak-to-trough | Halt all trading if account drops 10% |
+| **Liquidity** | Bid-ask ≤ $0.15 (both legs) | Ensure we can enter/exit cleanly |
 | **Spread Width** | ≤ $5.00 | Keep defined-risk structures tight |
 | **Expiration** | 7-21 DTE | Sweet spot for gamma exposure vs theta decay |
 
@@ -197,7 +201,7 @@ bullrun/
 ├── agents/
 │   ├── scout_agent.py     # Regime detection
 │   ├── quant_agent.py     # Options structure selection
-│   ├── risk_engine.py     # 8 deterministic risk gates
+│   ├── risk_engine.py     # 12 deterministic risk gates
 │   ├── cio_agent.py       # LLM thesis generation
 │   └── data_service.py    # Alpaca data layer
 ├── dashboard/             # Next.js frontend
@@ -219,7 +223,7 @@ bullrun/
 
 **What we built:**
 - Autonomous AI trading agent using Alpaca's Trading API
-- Deterministic risk engine with 8 hardcoded safety gates
+- Deterministic risk engine with 12 hardcoded safety gates
 - Human consent gate before every trade
 - Teaching layer that explains every decision in plain English
 - Real-time dashboard with TradingView charts

@@ -9,9 +9,12 @@ Provides:
 
 import json
 import asyncio
+import hmac
+import os
 from datetime import datetime
-from typing import Optional
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from datetime import timedelta, timezone
+from typing import Literal, Optional
+from fastapi import Depends, FastAPI, Header, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -47,14 +50,18 @@ class ConnectionManager:
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
-        for connection in self.active_connections:
+        dead = []
+        for connection in list(self.active_connections):
             try:
                 await connection.send_json(message)
             except Exception:
-                pass
+                dead.append(connection)
+        for connection in dead:
+            self.disconnect(connection)
 
 manager = ConnectionManager()
 
@@ -62,6 +69,17 @@ manager = ConnectionManager()
 # ── Connect WebSocket manager to orchestrator on startup ─────────────
 # In-memory proposal store for web consent flow
 _pending_proposals: dict[int, dict] = {}
+_proposal_lock = asyncio.Lock()
+PROPOSAL_TTL_SECONDS = int(os.getenv("BULLRUN_PROPOSAL_TTL_SECONDS", "300"))
+
+
+def _require_api_token(x_api_key: Optional[str] = Header(default=None)) -> None:
+    """Protect state-changing endpoints; fail closed when no token is configured."""
+    expected = os.getenv("BULLRUN_API_TOKEN", "")
+    if not expected:
+        raise HTTPException(status_code=503, detail="BULLRUN_API_TOKEN must be configured for trade actions")
+    if not x_api_key or not hmac.compare_digest(x_api_key, expected):
+        raise HTTPException(status_code=401, detail="Invalid API token")
 
 @app.on_event("startup")
 async def startup():
@@ -91,7 +109,7 @@ class TradeProposal(BaseModel):
 
 class ConsentDecision(BaseModel):
     trade_number: int
-    decision: str  # APPROVE or REJECT
+    decision: Literal["APPROVE", "REJECT"]
     reason: str = ""
 
 class AIAnalysis(BaseModel):
@@ -158,7 +176,7 @@ async def get_portfolio():
         "open_positions": display_positions,
         "total_trades": summary.get("total_proposals", 0),
         "win_rate": summary.get("win_rate", 0),
-        "risk_used": round(abs(real_unrealized_pnl), 2),
+        "risk_used": round(sum(float(getattr(p, "cost_basis", 0) or 0) for p in positions) if open_position_count > 0 else abs(real_unrealized_pnl), 2),
         "risk_limit": RISK_LIMITS.max_portfolio_exposure * equity,
     }
 
@@ -239,7 +257,7 @@ async def get_learning_progress():
 
 
 @app.post("/api/learning/explore/{feature}")
-async def explore_learning_feature(feature: str):
+async def explore_learning_feature(feature: str, _: None = Depends(_require_api_token)):
     """Record a lesson that the user deliberately explored."""
     from teaching_engine import record_feature_explored
     try:
@@ -276,6 +294,31 @@ async def get_market_tickers():
         return {"tickers": []}
 
 
+@app.get("/api/chart")
+async def get_chart_data():
+    """Get 90 days of SPY OHLCV for the TradingView chart."""
+    import time as _time
+    now = _time.time()
+    if not hasattr(get_chart_data, '_cache') or now - get_chart_data._cache.get('ts', 0) > 300:
+        try:
+            import yfinance as yf
+            spy = yf.Ticker("SPY")
+            hist = spy.history(period="3mo", interval="1d")
+            bars = []
+            for idx, row in hist.iterrows():
+                bars.append({
+                    "time": idx.strftime("%Y-%m-%d"),
+                    "open": round(float(row["Open"]), 2),
+                    "high": round(float(row["High"]), 2),
+                    "low": round(float(row["Low"]), 2),
+                    "close": round(float(row["Close"]), 2),
+                    "volume": int(row["Volume"]),
+                })
+            get_chart_data._cache = {"ts": now, "data": bars}
+        except Exception:
+            get_chart_data._cache = {"ts": now, "data": []}
+    return {"data": get_chart_data._cache["data"]}
+
 @app.get("/api/market/{symbol}")
 async def get_market_data(symbol: str):
     """Get current market data for a symbol."""
@@ -293,7 +336,7 @@ async def get_market_data(symbol: str):
 
 
 @app.post("/api/scan")
-async def trigger_scan():
+async def trigger_scan(_: None = Depends(_require_api_token)):
     """Trigger a single pipeline scan (web-compatible, no CLI consent)."""
     from orchestrator import run_pipeline_web
     try:
@@ -301,14 +344,17 @@ async def trigger_scan():
         # Store proposal for consent flow
         trade_num = result.get("trade_number")
         if trade_num and result.get("proposal"):
-            _pending_proposals[trade_num] = result["proposal"]
+            _pending_proposals[trade_num] = {
+                "proposal": result["proposal"],
+                "created_at": datetime.now(timezone.utc),
+            }
         return {"status": "completed", "result": result}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
 
 @app.post("/api/scan-cli")
-async def trigger_scan_cli():
+async def trigger_scan_cli(_: None = Depends(_require_api_token)):
     """Trigger a pipeline scan with CLI consent (for terminal demo)."""
     from orchestrator import run_pipeline
     try:
@@ -328,12 +374,21 @@ async def get_live_positions():
 
 
 @app.post("/api/consent")
-async def submit_consent(decision: ConsentDecision):
+async def submit_consent(decision: ConsentDecision, _: None = Depends(_require_api_token)):
     """Submit a human consent decision for a trade and execute if approved."""
     from audit import log_consent
     from orchestrator import execute_after_consent
 
-    consent_dict = {"decision": decision.decision, "reason": decision.reason, "timestamp": datetime.now().isoformat()}
+    async with _proposal_lock:
+        record = _pending_proposals.pop(decision.trade_number, None)
+
+    if not record:
+        raise HTTPException(status_code=404, detail="Proposal not found, expired, or already decided")
+    created_at = record["created_at"]
+    if datetime.now(timezone.utc) - created_at > timedelta(seconds=PROPOSAL_TTL_SECONDS):
+        raise HTTPException(status_code=410, detail="Proposal has expired; run a new scan")
+
+    consent_dict = {"decision": decision.decision, "reason": decision.reason, "timestamp": datetime.now(timezone.utc).isoformat()}
     log_consent(consent_dict, decision.trade_number)
 
     # Broadcast consent decision
@@ -348,16 +403,10 @@ async def submit_consent(decision: ConsentDecision):
     # If approved, execute the trade
     if decision.decision == "APPROVE":
         try:
-            # We need the proposal — get it from the last broadcast state
-            # For now, store proposals in a simple dict
-            if not hasattr(app, '_pending_proposals'):
-                app._pending_proposals = {}
-            proposal = app._pending_proposals.get(decision.trade_number)
-            if proposal:
-                execution = execute_after_consent(decision.trade_number, proposal, consent_dict)
-                return {"status": "executed", "trade_number": decision.trade_number, "execution": execution}
-            else:
-                return {"status": "recorded", "trade_number": decision.trade_number, "note": "Proposal not found in memory"}
+            execution = await asyncio.to_thread(
+                execute_after_consent, decision.trade_number, record["proposal"], consent_dict
+            )
+            return {"status": "executed", "trade_number": decision.trade_number, "execution": execution}
         except Exception as e:
             return {"status": "error", "error": str(e)}
 

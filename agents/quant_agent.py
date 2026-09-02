@@ -84,7 +84,8 @@ def run(regime_result: dict) -> dict:
     # Position sizing by conviction (higher score = bigger position, within 2% rule)
     score = conviction["score"]
     max_loss_contract = result.get("max_loss_per_contract", 250.0)
-    max_risk_allowed = 2000.0  # 2% of $100K portfolio
+    from config import RISK_LIMITS as _RL
+    max_risk_allowed = _RL.max_risk_per_trade * 100_000
 
     if score >= 93:
         target_contracts = 3
@@ -227,7 +228,7 @@ def _build_spread(structure: str, long_leg: dict, short_leg: dict, current_price
     if max_profit <= 0:
         return _no_trade(structure, f"Spread width ${spread_width:.2f} < net debit ${net_debit:.2f} — no upside")
 
-    bid_ask = long_leg["ask"] - long_leg["bid"]
+    bid_ask = (long_leg["ask"] - long_leg["bid"]) + (short_leg["ask"] - short_leg["bid"])
 
     expiry = long_leg.get("expiry", "")
     dte = long_leg.get("dte", 14)

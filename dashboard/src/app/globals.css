@@ -164,6 +164,12 @@ html, body {
   color: #c084fc;
   border: 1px solid rgba(168, 85, 247, 0.35);
 }
+.badge-watching {
+  background: rgba(100, 116, 139, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(100, 116, 139, 0.35);
+}
+
 
 /* ── Live Pulse Dots ─────────────────────────────────────────────────── */
 @keyframes live-pulse {

@@ -23,7 +23,7 @@ from datetime import datetime, timedelta
 from rich.console import Console
 from rich.table import Table
 from rich import box
-from config import RISK_LIMITS, AUDIT_LOG
+from config import POSITIONS_FILE, RISK_LIMITS, AUDIT_LOG
 from audit import log_exit
 
 console = Console()
@@ -40,7 +40,7 @@ class PositionMonitor:
 
     def _load_positions(self):
         """Load positions from disk if available."""
-        pos_file = "positions.json"
+        pos_file = POSITIONS_FILE
         if os.path.exists(pos_file):
             try:
                 with open(pos_file) as f:
@@ -50,7 +50,7 @@ class PositionMonitor:
 
     def _save_positions(self):
         """Save positions to disk."""
-        with open("positions.json", "w") as f:
+        with open(POSITIONS_FILE, "w") as f:
             json.dump(self.positions, f, indent=2, default=str)
 
     def add_position(self, proposal: dict, execution: dict, trade_number: int) -> None:
@@ -60,6 +60,7 @@ class PositionMonitor:
             "trade_number": trade_number,
             "structure": proposal.get("structure"),
             "underlying": proposal.get("underlying"),
+            "direction": proposal.get("direction"),
             "long_leg": proposal.get("long_leg"),
             "short_leg": proposal.get("short_leg"),
             "expiry": proposal.get("expiry", ""),
@@ -159,7 +160,8 @@ class PositionMonitor:
             elif long_quote["mid"] > 0 and short_quote["mid"] > 0:
                 current_value = float(long_quote["mid"]) - float(short_quote["mid"])
                 position["current_value"] = round(current_value, 2)
-                position["unrealized_pnl"] = round((current_value - float(position.get("net_debit", 0) or 0)) * 100, 2)
+                qty = int(position.get("quantity", 1))
+                position["unrealized_pnl"] = round((current_value - float(position.get("net_debit", 0) or 0)) * 100 * qty, 2)
             else:
                 position["data_warning"] = "Alpaca has no current marks for both option legs"
                 return
@@ -238,20 +240,18 @@ class PositionMonitor:
         if max_profit > 0 and entry_debit > 0:
             gain_pct = (current_value - entry_debit) / (max_profit / 100)
             
-            # Partial take profit milestone (+30% of max profit)
+            # A partial exit needs a broker order.  Do not alter local quantity or
+            # record P&L until an actual fill is received.
             if gain_pct >= RISK_LIMITS.partial_take_profit_pct and not position.get("partial_exit_taken"):
                 qty = int(position.get("quantity", 1))
                 if qty >= 2:
-                    partial_qty = max(1, int(qty * RISK_LIMITS.partial_take_profit_qty))
-                    partial_pnl = round((current_value - entry_debit) * 100 * partial_qty, 2)
-                    position["partial_exit_taken"] = True
-                    position["quantity"] = qty - partial_qty
-                    position["partial_realized_pnl"] = partial_pnl
-                    self._daily_pnl += partial_pnl
-                    console.print(f"[bold cyan][Monitor] PARTIAL PROFIT: Closed {partial_qty}/{qty} contracts at +{gain_pct:.0%} | Locked in +${partial_pnl:,.2f}[/bold cyan]")
+                    position["partial_exit_signal"] = {
+                        "quantity": max(1, int(qty * RISK_LIMITS.partial_take_profit_qty)),
+                        "reason": f"Partial profit target reached (+{gain_pct:.0%} of max profit)",
+                    }
+                    console.print("[bold cyan][Monitor] PARTIAL PROFIT SIGNAL: broker close order required before P&L is recorded[/bold cyan]")
                 else:
-                    position["partial_exit_taken"] = True
-                    console.print(f"[bold cyan][Monitor] PARTIAL TARGET HIT: +{gain_pct:.0%} max profit reached (trailing stop moved to breakeven)[/bold cyan]")
+                    position["partial_exit_signal"] = {"quantity": 1, "reason": "Partial target reached; broker action required"}
 
             # Full take profit (+50% of max profit)
             if gain_pct >= RISK_LIMITS.take_profit_pct:
@@ -346,7 +346,7 @@ class PositionMonitor:
                 "max_profit": pos.get("max_profit", 0),
                 "breakeven": pos.get("breakeven", 0),
                 "days_held": days_held,
-                "estimated_dte": pos.get("dte", 14) - days_held,
+                "estimated_dte": max(0, pos.get("dte", 14) - days_held),
                 "greeks": pos.get("greeks", {"delta": 0, "gamma": 0, "theta": 0}),
                 "stop_price": pos.get("stop_price", self._stop_price(pos.get("net_debit", 0))),
                 "stop_proximity_alert": pos.get("stop_proximity_alert", False),

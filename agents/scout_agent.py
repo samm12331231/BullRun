@@ -41,7 +41,7 @@ def run() -> dict:
         console.print(f"[yellow][Scout] Primary data fetch failed: {e} — using fallback generator[/yellow]")
 
     # If data_service returned empty or failed, use yfinance directly
-    if df is None or df.empty or len(df) < 15:
+    if df is None or df.empty or len(df) < 35:
         try:
             import yfinance as yf
             console.print(f"[yellow][Scout] Trying yfinance directly...[/yellow]")
@@ -54,7 +54,7 @@ def run() -> dict:
             console.print(f"[yellow][Scout] yfinance also failed: {e}[/yellow]")
 
     # Last resort: synthetic data for demo
-    if df is None or df.empty or len(df) < 15:
+    if df is None or df.empty or len(df) < 35:
         console.print("[yellow][Scout] Using synthetic demo data[/yellow]")
         import numpy as np
         dates = pd.date_range(end=datetime.now(), periods=LOOKBACK_DAYS, freq="D")
@@ -65,7 +65,7 @@ def run() -> dict:
         volumes = np.random.randint(40000000, 80000000, LOOKBACK_DAYS)
         df = pd.DataFrame({"Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": volumes}, index=dates)
 
-    if df.empty or len(df) < 15:
+    if df.empty or len(df) < 35:
         raise ValueError(f"Not enough historical data available for {UNDERLYING}.")
 
     current_price = float(df["Close"].iloc[-1])
@@ -128,11 +128,11 @@ def run() -> dict:
             current_rsi < 50,
         ])
 
-        if bullish_signals >= 3:
+        if bullish_signals >= 2:
             regime = "BULLISH"
             confidence = min(1.0, (current_adx - ADX_TREND_THRESHOLD) / 25 + 0.5)
             reason = f"ADX={current_adx:.1f} (>{ADX_TREND_THRESHOLD}), {bullish_signals}/4 indicators bullish"
-        elif bearish_signals >= 3:
+        elif bearish_signals >= 2:
             regime = "BEARISH"
             confidence = min(1.0, (current_adx - ADX_TREND_THRESHOLD) / 25 + 0.5)
             reason = f"ADX={current_adx:.1f} (>{ADX_TREND_THRESHOLD}), {bearish_signals}/4 indicators bearish"

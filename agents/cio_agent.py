@@ -66,6 +66,7 @@ def run(regime_result: dict, proposal: dict, risk_check: dict) -> dict:
             max_tokens=400,
             temperature=0.4,
             response_format={"type": "json_object"},
+            timeout=15,
         )
 
         import json

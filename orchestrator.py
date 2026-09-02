@@ -14,6 +14,7 @@ updates in real-time.
 
 import json
 import asyncio
+import threading
 from datetime import datetime
 from rich.console import Console
 from rich.panel import Panel
@@ -36,6 +37,7 @@ console = Console()
 
 # Global trade counter
 _trade_counter = 0
+_counter_lock = threading.Lock()
 
 # ── WebSocket broadcast helper ──────────────────────────────────────────────
 
@@ -72,7 +74,9 @@ def run_pipeline() -> dict:
     """
 
     global _trade_counter
-    _trade_counter += 1
+    with _counter_lock:
+        _trade_counter += 1
+        trade_num = _trade_counter
 
     console.print()
     console.rule("[bold gold1]  BULLRUN  |  Starting Pipeline  [/bold gold1]")
@@ -169,10 +173,12 @@ def run_pipeline() -> dict:
             "current_portfolio_exposure": sum(
                 p.get("max_loss", 0) or 0 for p in monitor.get_open_positions()
             ),
-            "available_cash": 100_000,
-            "equity": 100_000,
+            "available_cash": 100_000 - sum(p.get("net_debit", 0) or 0 for p in monitor.get_open_positions()) * 100,
+            "equity": 100_000 + monitor.get_portfolio_summary()["combined_pnl"],
             "open_positions": monitor.get_open_positions(),
         }
+        risk_engine.risk_engine.update_daily_pnl(monitor.get_portfolio_summary()["daily_pnl"] - risk_engine.risk_engine._daily_pnl)
+        risk_engine.risk_engine.update_equity(portfolio_state["equity"])
         risk_check = risk_engine.risk_engine.check(proposal, portfolio_state)
         results["risk_check"] = risk_check
         log_risk_check(risk_check, _trade_counter)
@@ -268,7 +274,6 @@ def run_pipeline() -> dict:
     console.print(f"\n[bold cyan]Executing:[/bold cyan] Submitting to Alpaca...")
     execution = execution_run(proposal, consent, _trade_counter)
     results["execution"] = execution
-    log_execution(execution, _trade_counter)
 
     _broadcast({
         "type": "execution_result",
@@ -297,7 +302,9 @@ def run_pipeline_web() -> dict:
     via the /api/consent endpoint.
     """
     global _trade_counter
-    _trade_counter += 1
+    with _counter_lock:
+        _trade_counter += 1
+        trade_num = _trade_counter
 
     console.print()
     console.rule("[bold gold1]  BULLRUN  |  Web Pipeline  [/bold gold1]")
@@ -351,10 +358,12 @@ def run_pipeline_web() -> dict:
         portfolio_state = {
             "open_position_count": len(monitor.get_open_positions()),
             "current_portfolio_exposure": sum(p.get("max_loss", 0) or 0 for p in monitor.get_open_positions()),
-            "available_cash": 100_000,
-            "equity": 100_000,
+            "available_cash": 100_000 - sum(p.get("net_debit", 0) or 0 for p in monitor.get_open_positions()) * 100,
+            "equity": 100_000 + monitor.get_portfolio_summary()["combined_pnl"],
             "open_positions": monitor.get_open_positions(),
         }
+        risk_engine.risk_engine.update_daily_pnl(monitor.get_portfolio_summary()["daily_pnl"] - risk_engine.risk_engine._daily_pnl)
+        risk_engine.risk_engine.update_equity(portfolio_state["equity"])
         risk_check = risk_engine.risk_engine.check(proposal, portfolio_state)
         results["risk_check"] = risk_check
         log_risk_check(risk_check, _trade_counter)
@@ -407,7 +416,6 @@ def run_pipeline_web() -> dict:
 def execute_after_consent(trade_number: int, proposal: dict, consent: dict) -> dict:
     """Execute a trade after web consent is received."""
     execution = execution_run(proposal, consent, trade_number)
-    log_execution(execution, trade_number)
     _broadcast({
         "type": "execution_result",
         "trade_number": trade_number,
@@ -434,25 +442,14 @@ def run_monitor_check() -> list:
     for pos in exits:
         console.print(f"[yellow]Position #{pos['trade_number']} triggered exit: {pos['exit_reason']}[/yellow]")
 
-        # Close the position with actual P&L
-        entry = monitor.close_position(pos, pos["exit_reason"])
-
-        # Broadcast exit to dashboard
+        # The monitor does not have a broker-side closing implementation yet.
+        # Never mark a position closed locally before Alpaca confirms that fill.
+        monitor._save_positions()
         _broadcast({
-            "type": "trade_exit",
+            "type": "exit_signal",
             "trade_number": pos["trade_number"],
             "exit_reason": pos["exit_reason"],
             "pnl": pos.get("unrealized_pnl", 0),
-            "timestamp": datetime.now().isoformat(),
-        })
-
-        # Generate learning report
-        generate_learning_report(pos, pos["trade_number"])
-        journal = generate_trade_journal(pos, pos["trade_number"])
-        _broadcast({
-            "type": "learning_report",
-            "trade_number": pos["trade_number"],
-            "data": journal,
             "timestamp": datetime.now().isoformat(),
         })
 

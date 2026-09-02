@@ -130,26 +130,24 @@ export default function Dashboard() {
   const [scanning, setScanning] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState<"proposal" | "academy">("proposal");
 
-  useEffect(() => {
-    setChartData(generateMockChartData());
-    setActiveProposal(generateMockProposal());
-    setTrades(generateMockTrades());
-  }, []);
+  // No mock data on mount — let real API data populate
 
   const loadData = useCallback(async () => {
     try {
-      const [p, r, t, l, tick] = await Promise.allSettled([
+      const [p, r, t, l, tick, chart] = await Promise.allSettled([
         fetchPortfolio(),
         fetchRegime(),
         fetchTrades(),
         fetchLearningProgress(),
         fetchTickers(),
+        fetch(`${API_URL}/api/chart`).then(res => res.json()).catch(() => null),
       ]);
-      if (p.status === "fulfilled") setPortfolio(p.value);
-      if (r.status === "fulfilled") setRegime(r.value);
-      if (t.status === "fulfilled") setTrades(t.value.trades);
-      if (l.status === "fulfilled") setLearning(l.value);
-      if (tick.status === "fulfilled") setTickers(tick.value);
+      if (p.status === "fulfilled" && p.value) setPortfolio(p.value);
+      if (r.status === "fulfilled" && r.value) setRegime(r.value);
+      if (t.status === "fulfilled" && t.value) setTrades(t.value.trades || []);
+      if (l.status === "fulfilled" && l.value) setLearning(l.value);
+      if (tick.status === "fulfilled" && tick.value) setTickers(tick.value);
+      if (chart.status === "fulfilled" && chart.value?.data) setChartData(chart.value.data);
     } catch {
       // Fallback to offline defaults
     }
@@ -177,9 +175,8 @@ export default function Dashboard() {
         setActiveProposal(data.result);
       }
       await loadData();
-    } catch {
-      // Offline fallback proposal reset
-      setActiveProposal(generateMockProposal());
+    } catch (e) {
+      console.error("Scan failed:", e);
     }
     setScanning(false);
   };
@@ -192,7 +189,9 @@ export default function Dashboard() {
           ? "badge-bearish"
           : r === "VOLATILE"
             ? "badge-volatile"
-            : "badge-neutral";
+            : r === "WATCHING"
+              ? "badge-watching"
+              : "badge-neutral";
     return <span className={`terminal-badge ${cls}`}>{r}</span>;
   };
 
@@ -242,7 +241,11 @@ export default function Dashboard() {
               <span>{scanning ? "SCANNING PIPELINE..." : "TRIGGER AI SCAN"}</span>
             </button>
 
-            {regime && regimeBadge(regime.regime)}
+            {regime && regimeBadge(
+              (regime.metrics?.adx != null && regime.metrics.adx > 25) 
+                ? regime.regime 
+                : "WATCHING"
+            )}
 
             <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
               <div className={`w-2.5 h-2.5 rounded-full ${connected ? "bg-emerald-400 pulse-live" : "bg-amber-400"}`} />
@@ -258,16 +261,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-1 text-[10px] text-slate-500 uppercase tracking-widest font-bold shrink-0">
             <span>●</span> TICKER TAPE:
           </div>
-          {(tickers.length > 0 ? tickers : [
-            { symbol: "SPY", price: 565.40, change_pct: 0.42 },
-            { symbol: "QQQ", price: 482.15, change_pct: 0.68 },
-            { symbol: "IWM", price: 218.90, change_pct: -0.15 },
-            { symbol: "VIX", price: 14.85, change_pct: -3.20 },
-            { symbol: "NVDA", price: 128.50, change_pct: 1.80 },
-            { symbol: "AAPL", price: 224.30, change_pct: 0.50 },
-            { symbol: "MSFT", price: 448.20, change_pct: 0.35 },
-            { symbol: "TSLA", price: 214.80, change_pct: -0.85 },
-          ]).filter(q => q.price != null && q.change_pct != null).map((quote) => {
+          {tickers.filter(q => q.price != null).map((quote) => {
             const isPos = (quote.change_pct ?? 0) >= 0;
             return (
               <div key={quote.symbol} className="flex items-center gap-2 shrink-0">
@@ -289,25 +283,25 @@ export default function Dashboard() {
           <div className="bloomberg-metric" style={{ "--accent-color": "#f59e0b" } as React.CSSProperties}>
             <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Total Portfolio Value</div>
             <div className="text-xl font-bold font-mono text-amber-400 mt-1">
-              ${portfolio?.equity?.toLocaleString() ?? "100,000.00"}
+              ${portfolio?.equity != null ? portfolio.equity.toLocaleString() : "—"}
             </div>
-            <div className="text-[10px] font-mono text-slate-500">Buying Power: ${portfolio?.cash?.toLocaleString() ?? "99,330"}</div>
+            <div className="text-[10px] font-mono text-slate-500">Buying Power: ${portfolio?.cash != null ? portfolio.cash.toLocaleString() : "—"}</div>
           </div>
 
           <div className="bloomberg-metric" style={{ "--accent-color": (portfolio?.total_pnl ?? 0) >= 0 ? "#10b981" : "#f43f5e" } as React.CSSProperties}>
             <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Net Realized P&amp;L</div>
             <div className={`text-xl font-bold font-mono mt-1 ${(portfolio?.total_pnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-              ${(portfolio?.total_pnl ?? 495.0).toFixed(2)}
+              ${portfolio?.total_pnl != null ? portfolio.total_pnl.toFixed(2) : "—"}
             </div>
-            <div className="text-[10px] font-mono text-slate-500">Win Rate: {portfolio?.win_rate ?? 100}%</div>
+            <div className="text-[10px] font-mono text-slate-500">Win Rate: {portfolio?.win_rate != null ? `${portfolio.win_rate}%` : "—"}</div>
           </div>
 
           <div className="bloomberg-metric" style={{ "--accent-color": "#06b6d4" } as React.CSSProperties}>
             <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Market Regime</div>
             <div className="text-xl font-bold font-mono text-cyan-400 mt-1">
-              {regime?.regime ?? "BULLISH"}
+              {regime?.regime ?? "—"}
             </div>
-            <div className="text-[10px] font-mono text-slate-500">ADX: {regime?.metrics?.adx?.toFixed(1) ?? "31.2"} · RSI: {regime?.metrics?.rsi?.toFixed(1) ?? "62.4"}</div>
+            <div className="text-[10px] font-mono text-slate-500">ADX: {regime?.metrics?.adx?.toFixed(1) ?? "—"} · RSI: {regime?.metrics?.rsi?.toFixed(1) ?? "—"}</div>
           </div>
 
           <div className="bloomberg-metric" style={{ "--accent-color": "#10b981" } as React.CSSProperties}>
@@ -315,13 +309,13 @@ export default function Dashboard() {
             <div className="text-xl font-bold font-mono text-emerald-400 mt-1">
               $2,000 / Trade
             </div>
-            <div className="text-[10px] font-mono text-slate-500">Heat: ${(portfolio?.risk_used ?? 670).toLocaleString()} / $6,000</div>
+            <div className="text-[10px] font-mono text-slate-500">              Heat: ${Math.round(portfolio?.risk_used ?? 0).toLocaleString()} / ${Math.round(portfolio?.risk_limit ?? 6000).toLocaleString()}</div>
           </div>
 
           <div className="bloomberg-metric" style={{ "--accent-color": "#a855f7" } as React.CSSProperties}>
             <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Active Positions</div>
             <div className="text-xl font-bold font-mono text-purple-400 mt-1">
-              {portfolio?.open_positions ?? 1} / 3 Max
+              {portfolio?.open_positions ?? 0} / 3 Max
             </div>
             <div className="text-[10px] font-mono text-slate-500">Correlation Protected</div>
           </div>
@@ -329,9 +323,9 @@ export default function Dashboard() {
           <div className="bloomberg-metric" style={{ "--accent-color": "#3b82f6" } as React.CSSProperties}>
             <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Trader Mastery XP</div>
             <div className="text-xl font-bold font-mono text-blue-400 mt-1">
-              {learning?.level ?? "Intermediate"}
+              {learning?.level ?? "Beginner"}
             </div>
-            <div className="text-[10px] font-mono text-slate-500">{learning?.score ?? 45} / 100 Mastery XP</div>
+            <div className="text-[10px] font-mono text-slate-500">{learning?.score ?? 0} / 100 Mastery XP</div>
           </div>
         </div>
 
@@ -346,15 +340,19 @@ export default function Dashboard() {
                   <div className="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono flex items-center gap-2">
                     <span>📈</span> SPY / S&amp;P 500 ETF TRUST — REAL-TIME REGIME OVERLAY
                   </div>
-                  <span className="terminal-badge badge-bullish">TREND ALIGNED</span>
+                  <span className="terminal-badge badge-bullish">{regime?.regime === "BULLISH" || regime?.regime === "BEARISH" ? "TREND ALIGNED" : regime?.regime ? "WATCHING" : "SCANNING..."}</span>
                 </div>
                 <div className="text-xs font-mono text-slate-400">
-                  EMA 20 &gt; EMA 50 · Volume: Normal
+                  {regime?.metrics?.ema_bullish != null 
+                    ? (regime.metrics.ema_bullish 
+                        ? <span className="text-emerald-400">EMA 20 &gt; EMA 50</span>
+                        : <span className="text-rose-400">EMA 20 &lt; EMA 50</span>)
+                    : <span className="text-slate-400">EMA: --</span>}
                 </div>
               </div>
               <div className="h-[380px] w-full">
                 {chartData.length > 0 ? (
-                  <PriceChart data={chartData} symbol="SPY" />
+                  <PriceChart data={chartData} symbol={regime?.metrics?.current_price ? "SPY" : "SPY"} />
                 ) : (
                   <div className="h-full flex items-center justify-center text-slate-500 font-mono text-xs">
                     Loading institutional chart feed...
@@ -462,7 +460,7 @@ export default function Dashboard() {
                     longStrike={activeProposal.proposal.long_leg.strike}
                     shortStrike={activeProposal.proposal.short_leg.strike}
                     netDebit={activeProposal.proposal.net_debit}
-                    currentPrice={766.74}
+                    currentPrice={regime?.metrics?.current_price || activeProposal.proposal.breakeven}
                     underlying={activeProposal.proposal.underlying}
                   />
                 </div>
@@ -493,20 +491,16 @@ export default function Dashboard() {
       </main>
 
       {/* ── Footer ───────────────────────────────────────────────────── */}
-      <footer className="border-t border-slate-800/80 bg-[#0d131f] px-6 py-2.5 flex items-center justify-between text-xs font-mono text-slate-400">
-        <div className="flex items-center gap-4">
-          <span>Underlying: SPY</span>
-          <span>•</span>
-          <span>Risk Rule: 2% Cap ($2,000 max loss)</span>
-          <span>•</span>
-          <span>Greeks Delta Exit: &lt; 0.10</span>
-          <span>•</span>
-          <span>Partial Take Profit: 50% @ +30%</span>
+      <footer className="border-t border-slate-800/80 bg-[#0d131f] px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-400">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span className="text-slate-300 font-bold">SPY</span>
+          <span>2% Rule ($2K max loss)</span>
+          <span>Greeks Exit &lt; 0.10</span>
+          <span>TP: 50% @ +30%</span>
         </div>
-        <div className="flex items-center gap-4">
-          <span>Alpaca AI Trading Hackathon Submission</span>
-          <span>•</span>
-          <span className="text-amber-400 font-bold">BullRun v2.0 Production</span>
+        <div className="flex items-center gap-3">
+          <span>Alpaca Hackathon 2026</span>
+          <span className="text-amber-400 font-bold">BullRun v2.0</span>
         </div>
       </footer>
     </div>

@@ -28,9 +28,19 @@ Output: PASS/REJECT + list of 12 check results
 import json
 import os
 from datetime import datetime, date, time
+from zoneinfo import ZoneInfo
+import json as _json
+import os as _os
 from rich.console import Console
 from config import RISK_LIMITS, UNDERLYING, AUDIT_LOG
 from agents.data_service import check_upcoming_earnings
+
+# Correlated ETF groups for the correlation guard
+CORRELATED_GROUPS = {
+    "us_equity_broad": {"SPY", "QQQ", "IWM", "VTI", "VOO", "IVV"},
+    "tech_sector": {"QQQ", "XLK"},
+}
+STATE_FILE = "risk_engine_state.json"
 
 console = Console()
 
@@ -48,6 +58,29 @@ class RiskEngine:
         self._daily_date = date.today()
         self._starting_equity = 100_000.0
         self._peak_equity = 100_000.0
+        self._load_state()
+
+    def _load_state(self):
+        if _os.path.exists(STATE_FILE):
+            try:
+                with open(STATE_FILE) as f:
+                    state = _json.load(f)
+                    self._daily_pnl = state.get("daily_pnl", 0.0)
+                    self._daily_date = date.fromisoformat(state.get("daily_date", date.today().isoformat()))
+                    self._peak_equity = state.get("peak_equity", 100_000.0)
+            except Exception:
+                pass
+
+    def _save_state(self):
+        try:
+            with open(STATE_FILE, "w") as f:
+                _json.dump({
+                    "daily_pnl": self._daily_pnl,
+                    "daily_date": self._daily_date.isoformat(),
+                    "peak_equity": self._peak_equity,
+                }, f)
+        except Exception:
+            pass
 
     def _reset_daily(self):
         """Reset daily tracking if it's a new calendar day."""
@@ -86,41 +119,49 @@ class RiskEngine:
                 "available_cash": 100_000,
                 "equity": 100_000,
                 "open_positions": [],
+                "unrealized_pnl": 0,
             }
 
         equity = float(portfolio_state.get("equity", portfolio_state.get("available_cash", 100_000.0)))
         checks = []
 
-        # ── Check 1: 2% RULE (Max Loss Per Contract) ──────────────────────
+        # ── Check 1: 2% RULE (Total Trade Risk) ─────────────────────────
         max_loss_per_contract = float(proposal.get("max_loss_per_contract", 0))
+        qty = int(proposal.get("quantity", proposal.get("recommended_contracts", 1)))
+        computed_total = max_loss_per_contract * qty
+        provided_total = float(proposal.get("total_risk_proposed", computed_total))
         max_allowed_risk = self.limits.max_risk_per_trade * equity
-        passed_2pct = max_loss_per_contract <= max_allowed_risk
+        # Fail-closed: missing/negative data = REJECT
+        risk_valid = (
+            max_loss_per_contract > 0
+            and abs(provided_total - computed_total) < 0.01
+            and provided_total <= max_allowed_risk
+        )
         checks.append({
             "name": "2% RULE",
-            "status": "PASS" if passed_2pct else "REJECT",
+            "status": "PASS" if risk_valid else "REJECT",
             "detail": (
-                f"${max_loss_per_contract:.0f} ≤ ${max_allowed_risk:.0f} "
-                f"({self.limits.max_risk_per_trade:.0%} of ${equity:,.0f})"
-                if passed_2pct else
-                f"${max_loss_per_contract:.0f} > ${max_allowed_risk:.0f} — EXCEEDS 2% LIMIT"
+                f"Total risk ${provided_total:,.0f} ≤ ${max_allowed_risk:,.0f} "
+                f" ({self.limits.max_risk_per_trade:.0%} of ${equity:,.0f})"
+                if risk_valid else
+                f"Total risk ${provided_total:,.0f} > ${max_allowed_risk:,.0f} — EXCEEDS 2% LIMIT"
             ),
             "critical": True,
         })
 
         # ── Check 2: CONVICTION SIZING (Position Sizing by Score) ──────────
-        qty = int(proposal.get("quantity", proposal.get("recommended_contracts", 1)))
-        total_risk_proposed = float(proposal.get("total_risk_proposed", max_loss_per_contract * qty))
-        # Derive max allowed contracts from conviction score + 2% cap
+        total_risk_proposed = provided_total
         conviction_score = float(proposal.get("conviction_score", 80))
-        if conviction_score >= 80:
-            max_contracts = max(1, int(max_allowed_risk / max_loss_per_contract))
-        elif conviction_score >= 60:
-            max_contracts = max(1, int(max_allowed_risk / max_loss_per_contract * 0.75))
-        elif conviction_score >= 40:
-            max_contracts = max(1, int(max_allowed_risk / max_loss_per_contract * 0.5))
+        if conviction_score >= 95:
+            conviction_cap = max_allowed_risk
+        elif conviction_score >= 90:
+            conviction_cap = max_allowed_risk * 0.75
+        elif conviction_score >= 80:
+            conviction_cap = max_allowed_risk * 0.50
         else:
-            max_contracts = 0  # Below 40 conviction = no trade
-        passed_sizing = qty <= max_contracts and total_risk_proposed <= max_allowed_risk
+            conviction_cap = 0.0
+        max_contracts = int(conviction_cap / max_loss_per_contract) if max_loss_per_contract > 0 else 0
+        passed_sizing = qty <= max_contracts and total_risk_proposed <= conviction_cap and max_loss_per_contract > 0
         checks.append({
             "name": "CONVICTION SIZING",
             "status": "PASS" if passed_sizing else "REJECT",
@@ -159,19 +200,33 @@ class RiskEngine:
             ),
         })
 
-        # ── Check 5: CORRELATION GUARD (No Same-Direction Duplication) ───
+        # ── Check 5: CORRELATION GUARD (Group-Aware) ───────────────────
         open_positions = portfolio_state.get("open_positions", [])
         proposed_dir = proposal.get("direction", "LONG")
         proposed_sym = proposal.get("underlying", UNDERLYING)
+        
+        proposed_group = None
+        for group_name, symbols in CORRELATED_GROUPS.items():
+            if proposed_sym in symbols:
+                proposed_group = group_name
+                break
         
         correlated_conflict = False
         conflict_reason = ""
         for pos in open_positions:
             pos_sym = pos.get("underlying", "")
             pos_dir = pos.get("direction", "")
-            if pos.get("status") == "OPEN" and pos_sym == proposed_sym and pos_dir == proposed_dir:
+            if pos.get("status") != "OPEN":
+                continue
+            # Exact duplicate
+            if pos_sym == proposed_sym and pos_dir == proposed_dir:
                 correlated_conflict = True
-                conflict_reason = f"Existing open {pos_dir} position on {pos_sym} (Trade #{pos.get('trade_number')})"
+                conflict_reason = f"Duplicate {pos_dir} on {pos_sym} (Trade #{pos.get('trade_number')})"
+                break
+            # Correlated group duplicate
+            if proposed_group and pos_sym in CORRELATED_GROUPS.get(proposed_group, set()) and pos_dir == proposed_dir:
+                correlated_conflict = True
+                conflict_reason = f"Correlated {pos_dir}: {proposed_sym} ↔ {pos_sym} ({proposed_group})"
                 break
 
         passed_correlation = not correlated_conflict
@@ -187,7 +242,8 @@ class RiskEngine:
         })
 
         # ── Check 6: TIME-OF-DAY GUARD (No trades first/last 30 min) ─────
-        now_est = datetime.now()  # Evaluated in local / EST context
+        from zoneinfo import ZoneInfo
+        now_est = datetime.now(ZoneInfo("America/New_York"))  # Market timezone
         current_time = now_est.time()
         # Market open 9:30 EST, close 16:00 EST
         # Block first 30 min (9:30-10:00) and last 30 min (15:30-16:00)
@@ -197,10 +253,14 @@ class RiskEngine:
         market_close = time(16, 0)
         
         in_open_buffer = market_open <= current_time < open_buffer_end
-        in_close_buffer = close_buffer_start <= current_time <= market_close
-        outside_market = current_time < market_open or current_time > market_close
+        in_close_buffer = close_buffer_start <= current_time < market_close
+        outside_market = current_time < market_open or current_time >= market_close
         
-        is_in_safe_window = not (in_open_buffer or in_close_buffer) if self.limits.enforce_market_hours else True
+        is_in_safe_window = (
+            not in_open_buffer
+            and not in_close_buffer
+            and not outside_market
+        ) if self.limits.enforce_market_hours else True
         passed_time = is_in_safe_window
         checks.append({
             "name": "TIME-OF-DAY GUARD",
@@ -228,14 +288,16 @@ class RiskEngine:
         })
 
         # ── Check 8: DAILY LOSS LIMIT (Circuit Breaker) ───────────────────
+        unrealized_pnl = float(portfolio_state.get("unrealized_pnl", 0))
+        effective_daily_pnl = self._daily_pnl + unrealized_pnl
         daily_loss_limit = self.limits.max_daily_loss * equity
-        daily_remaining = daily_loss_limit + self._daily_pnl  # _daily_pnl is negative when losing
+        daily_remaining = daily_loss_limit + effective_daily_pnl
         passed_daily = daily_remaining > 0
         checks.append({
             "name": "DAILY LIMIT",
             "status": "PASS" if passed_daily else "REJECT",
             "detail": (
-                f"Today's P&L: ${self._daily_pnl:+,.0f} | Budget: ${daily_remaining:,.0f} remaining"
+                f"Today's P&L: ${effective_daily_pnl:+,.0f} (realized: ${self._daily_pnl:+,.0f}, unrealized: ${unrealized_pnl:+,.0f}) | Budget: ${daily_remaining:,.0f} remaining"
                 if passed_daily else
                 f"DAILY LOSS LIMIT HIT: ${self._daily_pnl:+,.0f} (limit: -${daily_loss_limit:,.0f}) — TRADING HALTED"
             ),
@@ -245,7 +307,7 @@ class RiskEngine:
         # ── Check 9: MAX DRAWDOWN (Circuit Breaker) ───────────────────────
         drawdown = (self._peak_equity - equity) / self._peak_equity if self._peak_equity > 0 else 0
         max_dd = self.limits.max_drawdown
-        passed_dd = drawdown < max_dd
+        passed_dd = drawdown <= max_dd
         checks.append({
             "name": "DRAWDOWN",
             "status": "PASS" if passed_dd else "REJECT",
@@ -258,7 +320,7 @@ class RiskEngine:
         })
 
         # ── Check 10: LIQUIDITY (Bid-Ask Spread <= $0.15) ─────────────────
-        bid_ask = float(proposal.get("bid_ask_spread", 0.05))
+        bid_ask = float(proposal.get("bid_ask_spread", float("inf")))
         passed_liq = bid_ask <= 0.15
         checks.append({
             "name": "LIQUIDITY",
@@ -271,7 +333,7 @@ class RiskEngine:
         })
 
         # ── Check 11: SPREAD WIDTH (Width <= $5.00) ───────────────────────
-        width = float(proposal.get("spread_width", 5.0))
+        width = float(proposal.get("spread_width", float("inf")))
         passed_width = width <= self.limits.max_spread_width
         checks.append({
             "name": "SPREAD WIDTH",
@@ -284,7 +346,7 @@ class RiskEngine:
         })
 
         # ── Check 12: EXPIRATION WINDOW (7-21 DTE) ────────────────────────
-        dte = int(proposal.get("dte", 14))
+        dte = int(proposal.get("dte", 0))
         passed_dte = self.limits.min_dte <= dte <= self.limits.max_dte
         checks.append({
             "name": "EXPIRATION",

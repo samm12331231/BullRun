@@ -5,6 +5,7 @@ reports a live spread as executed until Alpaca confirms every intended leg is
 fully filled. DRY_RUN is deliberately enabled by default for demo safety.
 """
 
+import json
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -52,18 +53,28 @@ def run(proposal: dict, consent: dict, trade_number: int) -> dict:
 def _build_order_details(proposal: dict) -> dict:
     long_leg = proposal.get("long_leg") or {}
     short_leg = proposal.get("short_leg") or {}
-    if not long_leg.get("strike") or not short_leg.get("strike"):
+    if long_leg.get("strike") is None or short_leg.get("strike") is None:
         raise ValueError("Invalid spread: both option strikes are required")
     if float(proposal.get("net_debit") or 0) <= 0:
         raise ValueError("Invalid spread: a positive net debit is required")
-    if _is_expired(proposal.get("expiry", "")):
+    expiry_raw = proposal.get("expiry", "")
+    if not expiry_raw:
+        raise ValueError("Invalid spread: an ISO expiry date is required")
+    if _is_expired(expiry_raw):
         raise ValueError("Option contract expired; refusing order submission")
 
-    underlying = proposal.get("underlying", "SPY")
+    underlying = str(proposal.get("underlying", "SPY")).strip().upper()
+    if not underlying.isalpha() or len(underlying) > 6:
+        raise ValueError("Invalid underlying symbol")
     expiry = _format_expiry(proposal)
     long_symbol = long_leg.get("alpaca_symbol") or _option_symbol(underlying, expiry, long_leg)
     short_symbol = short_leg.get("alpaca_symbol") or _option_symbol(underlying, expiry, short_leg)
-    qty = int(proposal.get("quantity", proposal.get("recommended_contracts", 1)))
+    try:
+        qty = int(proposal.get("quantity", proposal.get("recommended_contracts", 1)))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Invalid contract quantity") from exc
+    if not 1 <= qty <= 100:
+        raise ValueError("Invalid contract quantity; must be between 1 and 100")
 
     return {
         "underlying": underlying,
@@ -82,13 +93,15 @@ def _build_order_details(proposal: dict) -> dict:
 def _execute_with_retry(order_details: dict) -> dict:
     """Execute order with exponential backoff retry for transient network / rate limits."""
     backend = os.getenv("EXECUTION_BACKEND", "sdk").strip().lower()
+    if backend != "sdk":
+        return _result("FAILED", error="Only the SDK backend is supported because it verifies multi-leg fills")
+    if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
+        return _result("FAILED", error="Alpaca credentials are not configured")
     last_error = "Unknown error"
     
     for attempt in range(1, EXECUTION_MAX_RETRIES + 1):
         try:
             console.print(f"[dim][Execution] Attempt {attempt}/{EXECUTION_MAX_RETRIES} submitting multi-leg order (Backend: {backend.upper()})...[/dim]")
-            if backend == "cli":
-                return _execute_via_cli(order_details)
             return _execute_via_sdk(order_details)
         except Exception as exc:
             last_error = _classify_error(exc)
@@ -156,19 +169,19 @@ def _execute_via_sdk(order_details: dict) -> dict:
         client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
         account = client.get_account()
         buying_power = float(account.buying_power)
-        required_cash = order_details["net_debit"] * 100
+        required_cash = order_details["net_debit"] * 100 * order_details["quantity"]
         if buying_power < required_cash:
             return _result("FAILED", error=f"Insufficient buying power: ${buying_power:,.2f} available; ${required_cash:,.2f} required")
 
         legs = [
             OptionLegRequest(
-                symbol=leg["symbol"], ratio_qty=leg["quantity"],
+                symbol=leg["symbol"], ratio_qty=1,
                 side=OrderSide.BUY if leg["side"] == "buy" else OrderSide.SELL,
             )
             for leg in order_details["legs"]
         ]
         request = LimitOrderRequest(
-            qty=1,
+            qty=order_details["quantity"],
             limit_price=order_details["net_debit"],
             time_in_force=TimeInForce.DAY,
             order_class=OrderClass.MLEG,
@@ -284,12 +297,10 @@ def _classify_error(exc: Exception) -> str:
 
 
 def _is_expired(expiry: str) -> bool:
-    if not expiry:
-        return False
     try:
         return datetime.strptime(expiry, "%Y-%m-%d").date() < datetime.now().date()
-    except ValueError:
-        return False
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Invalid expiry; expected YYYY-MM-DD") from exc
 
 
 def _format_expiry(proposal: dict) -> str:
@@ -297,9 +308,9 @@ def _format_expiry(proposal: dict) -> str:
     if expiry:
         try:
             return datetime.strptime(expiry, "%Y-%m-%d").strftime("%y%m%d")
-        except ValueError:
-            pass
-    return (datetime.now() + timedelta(days=int(proposal.get("dte", 14)))).strftime("%y%m%d")
+        except ValueError as exc:
+            raise ValueError("Invalid expiry; expected YYYY-MM-DD") from exc
+    raise ValueError("Invalid spread: an expiry date is required")
 
 
 def _result(status: str, **kwargs) -> dict:
