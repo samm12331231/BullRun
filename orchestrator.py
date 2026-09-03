@@ -39,6 +39,7 @@ def _get_portfolio_state() -> dict:
     equity = None
     cash = None
     alpaca_ok = False
+    alpaca_positions = []
     try:
         from agents.data_service import _get_trading_client
         client = _get_trading_client()
@@ -47,19 +48,36 @@ def _get_portfolio_state() -> dict:
             equity = float(account.equity)
             cash = float(account.cash)
             alpaca_ok = True
+            # Fetch real Alpaca positions — these are the source of truth
+            raw_positions = client.get_all_positions()
+            alpaca_positions = [
+                {
+                    "symbol": p.symbol,
+                    "qty": int(float(p.qty)),
+                    "side": p.side,
+                    "avg_entry_price": float(p.avg_entry_price),
+                    "current_price": float(p.current_price),
+                    "market_value": float(p.market_value),
+                    "unrealized_pl": float(p.unrealized_pl),
+                }
+                for p in raw_positions
+            ]
     except Exception as exc:
         print(f"[PortfolioState] Alpaca unavailable: {exc}")
 
-    open_positions = monitor.get_open_positions()
+    monitor_positions = monitor.get_open_positions()
     monitor_summary = monitor.get_portfolio_summary()
 
     if alpaca_ok:
+        # Alpaca is authoritative for positions; merge BullRun-specific fields from monitor
+        positions = alpaca_positions
+        exposure = sum(abs(float(p.get("market_value", 0) or 0)) for p in positions)
         return {
-            "open_position_count": len(open_positions),
-            "current_portfolio_exposure": sum(p.get("max_loss", 0) or 0 for p in open_positions),
+            "open_position_count": len(positions),
+            "current_portfolio_exposure": exposure,
             "available_cash": cash,
             "equity": equity,
-            "open_positions": open_positions,
+            "open_positions": positions,
             "data_mode": "live",
             "account_source": "alpaca_paper",
             "retrieved_at": _dt.now(_tz.utc).isoformat(),
@@ -68,11 +86,11 @@ def _get_portfolio_state() -> dict:
 
     # Alpaca unreachable — label clearly, do not pretend this is live
     return {
-        "open_position_count": len(open_positions),
-        "current_portfolio_exposure": sum(p.get("max_loss", 0) or 0 for p in open_positions),
+        "open_position_count": len(monitor_positions),
+        "current_portfolio_exposure": sum(p.get("max_loss", 0) or 0 for p in monitor_positions),
         "available_cash": None,
         "equity": None,
-        "open_positions": open_positions,
+        "open_positions": monitor_positions,
         "data_mode": "unavailable",
         "account_source": "unavailable",
         "retrieved_at": None,
