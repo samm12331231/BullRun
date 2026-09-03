@@ -12,9 +12,15 @@ build/
 .venv/
 venv/
 
-# Audit logs (contain trade data)
+# Audit logs + runtime data (contain trade data)
 audit_trades.jsonl
 trade_history.json
+backtest_results.json
+positions.json
+learning_progress.json
+
+# Local workspace
+.freebuff/
 
 # Node
 node_modules/
