@@ -93,7 +93,7 @@ class RiskLimits(BaseModel):
     earnings_buffer_dte: int = 5            # Reject if earnings within 5 DTE
     market_guard_start_min: int = 30        # No trades first 30 min (9:30-10:00 EST)
     market_guard_end_min: int = 30          # No trades last 30 min (15:30-16:00 EST)
-    enforce_market_hours: bool = False      # Configurable toggle for simulation/paper testing
+    enforce_market_hours: bool = True       # Enforce market-hours guard (9:30-10:00 / 15:30-16:00 EST buffer)
 
     # ── Circuit breakers ───────────────────────────────────────────────
     max_daily_loss: float = 0.03            # 3% daily loss limit = $3,000

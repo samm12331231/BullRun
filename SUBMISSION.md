@@ -22,7 +22,7 @@ The core insight: most trading agents optimize for autonomy. BullRun optimizes f
 
 **CIO** (thesis generation): GPT-4o-mini generates plain-English explanation with timeout protection and deterministic fallback template.
 
-**Execution**: Dual SDK + CLI backend. MLEG multi-leg limit orders with atomic fill verification (polls Alpaca until both legs confirm fill, cancels on partial fill). Exponential backoff retry. Dry-run mode for testing.
+**Execution**: Alpaca Trading API via alpaca-py for actual MLEG execution, with MCP/CLI integrations available for agent/tooling workflows. Atomic fill verification (polls Alpaca until both legs confirm fill, cancels on partial fill). Exponential backoff retry. Dry-run mode for testing.
 
 **Monitor**: Auto-exits positions via 7 deterministic rules (take profit, stop loss, trailing stop, Greeks delta exit, DTE exit, time exit, late-stage decay). Real-time P&L from Alpaca positions API.
 
@@ -35,7 +35,7 @@ The core insight: most trading agents optimize for autonomy. BullRun optimizes f
 ## Alpaca Infrastructure
 
 - **Primary**: Alpaca Trading SDK (alpaca-py) for multi-leg options orders
-- **Secondary**: Alpaca CLI fallback path
+- **MCP/CLI**: Available for agent workflows and tooling integration
 - **MCP Server**: JSON-RPC 2.0 stdio server exposing `execute_alpaca_trade`
 - **Data**: Real-time option chains, Greeks, quotes via Alpaca market data API
 - **Paper Trading**: $100K paper account, real order execution
