@@ -56,8 +56,8 @@ class RiskEngine:
         self.limits = RISK_LIMITS
         self._daily_pnl = 0.0
         self._daily_date = date.today()
-        self._starting_equity = 100_000.0
-        self._peak_equity = 100_000.0
+        self._starting_equity: float | None = None
+        self._peak_equity: float | None = None
         self._load_state()
 
     def _load_state(self):
@@ -67,7 +67,7 @@ class RiskEngine:
                     state = _json.load(f)
                     self._daily_pnl = state.get("daily_pnl", 0.0)
                     self._daily_date = date.fromisoformat(state.get("daily_date", date.today().isoformat()))
-                    self._peak_equity = state.get("peak_equity", 100_000.0)
+                    self._peak_equity = state.get("peak_equity")
             except Exception:
                 pass
 
@@ -96,7 +96,9 @@ class RiskEngine:
 
     def update_equity(self, equity: float):
         """Update peak equity for drawdown tracking."""
-        if equity > self._peak_equity:
+        if self._starting_equity is None:
+            self._starting_equity = equity
+        if self._peak_equity is None or equity > self._peak_equity:
             self._peak_equity = equity
 
     def check(self, proposal: dict, portfolio_state: dict = None) -> dict:
@@ -305,7 +307,10 @@ class RiskEngine:
         })
 
         # ── Check 9: MAX DRAWDOWN (Circuit Breaker) ───────────────────────
-        drawdown = (self._peak_equity - equity) / self._peak_equity if self._peak_equity > 0 else 0
+        if self._peak_equity is None or self._peak_equity <= 0:
+            drawdown = 0.0  # Cannot compute drawdown without verified peak equity
+        else:
+            drawdown = (self._peak_equity - equity) / self._peak_equity
         max_dd = self.limits.max_drawdown
         passed_dd = drawdown <= max_dd
         checks.append({

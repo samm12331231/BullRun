@@ -26,9 +26,19 @@ from trade_card import render_trade_card
 
 
 def _get_portfolio_state() -> dict:
-    """Fetch real portfolio state from Alpaca; fall back to monitor's internal book only if Alpaca is unreachable."""
+    """Fetch real portfolio state from Alpaca with full provenance.
+
+    Returns dict with equity, positions, and data-provenance fields:
+      - data_mode: "live" | "fallback" | "unavailable"
+      - account_source: "alpaca_paper" | "monitor_internal" | "unavailable"
+      - retrieved_at: ISO timestamp of when account data was fetched
+      - account_data_available: bool — False means execution must be blocked
+    """
+    from datetime import datetime as _dt, timezone as _tz
+
     equity = None
     cash = None
+    alpaca_ok = False
     try:
         from agents.data_service import _get_trading_client
         client = _get_trading_client()
@@ -36,23 +46,37 @@ def _get_portfolio_state() -> dict:
             account = client.get_account()
             equity = float(account.equity)
             cash = float(account.cash)
-    except Exception:
-        pass
+            alpaca_ok = True
+    except Exception as exc:
+        print(f"[PortfolioState] Alpaca unavailable: {exc}")
 
     open_positions = monitor.get_open_positions()
     monitor_summary = monitor.get_portfolio_summary()
 
-    if equity is None:
-        # Alpaca unreachable — use monitor's internal book (still better than hardcoded $100K)
-        equity = 100_000 + monitor_summary["combined_pnl"]
-        cash = 100_000 - sum(p.get("net_debit", 0) or 0 for p in open_positions) * 100
+    if alpaca_ok:
+        return {
+            "open_position_count": len(open_positions),
+            "current_portfolio_exposure": sum(p.get("max_loss", 0) or 0 for p in open_positions),
+            "available_cash": cash,
+            "equity": equity,
+            "open_positions": open_positions,
+            "data_mode": "live",
+            "account_source": "alpaca_paper",
+            "retrieved_at": _dt.now(_tz.utc).isoformat(),
+            "account_data_available": True,
+        }
 
+    # Alpaca unreachable — label clearly, do not pretend this is live
     return {
         "open_position_count": len(open_positions),
         "current_portfolio_exposure": sum(p.get("max_loss", 0) or 0 for p in open_positions),
-        "available_cash": cash,
-        "equity": equity,
+        "available_cash": None,
+        "equity": None,
         "open_positions": open_positions,
+        "data_mode": "unavailable",
+        "account_source": "unavailable",
+        "retrieved_at": None,
+        "account_data_available": False,
     }
 from consent_gate import run as consent_run
 from execution import run as execution_run
@@ -202,6 +226,14 @@ def run_pipeline() -> dict:
     console.print(f"\n[bold cyan]Stage 3/5:[/bold cyan] Risk Engine validating...")
     try:
         portfolio_state = _get_portfolio_state()
+
+        # Block execution if account data is unavailable — fail closed
+        if not portfolio_state.get("account_data_available", False):
+            console.print("[bold red][Orchestrator] BLOCKED: Alpaca account data unavailable. Cannot validate risk.[/bold red]")
+            risk_check = {"status": "REJECT", "checks": [{"name": "ACCOUNT_DATA", "status": "REJECT", "detail": "Account data unavailable — execution blocked", "critical": True}]}
+            results["risk_check"] = risk_check
+            return results
+
         risk_engine.risk_engine.update_daily_pnl(monitor.get_portfolio_summary()["daily_pnl"] - risk_engine.risk_engine._daily_pnl)
         risk_engine.risk_engine.update_equity(portfolio_state["equity"])
         risk_check = risk_engine.risk_engine.check(proposal, portfolio_state)
@@ -383,6 +415,13 @@ def run_pipeline_web() -> dict:
     console.print(f"\n[bold cyan]Stage 3/4:[/bold cyan] Risk Engine validating...")
     try:
         portfolio_state = _get_portfolio_state()
+
+        if not portfolio_state.get("account_data_available", False):
+            console.print("[bold red][Orchestrator] BLOCKED: Alpaca account data unavailable.[/bold red]")
+            risk_check = {"status": "REJECT", "checks": [{"name": "ACCOUNT_DATA", "status": "REJECT", "detail": "Account data unavailable", "critical": True}]}
+            results["risk_check"] = risk_check
+            return results
+
         risk_engine.risk_engine.update_daily_pnl(monitor.get_portfolio_summary()["daily_pnl"] - risk_engine.risk_engine._daily_pnl)
         risk_engine.risk_engine.update_equity(portfolio_state["equity"])
         risk_check = risk_engine.risk_engine.check(proposal, portfolio_state)

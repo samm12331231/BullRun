@@ -136,6 +136,7 @@ async def root():
 async def get_portfolio():
     """Get current portfolio state from Alpaca."""
     # Try to get real data from Alpaca first
+    alpaca_ok = False
     equity = 100_000.0
     cash = 100_000.0
     open_position_count = 0
@@ -149,6 +150,7 @@ async def get_portfolio():
             account = client.get_account()
             equity = float(account.equity)
             cash = float(account.cash)
+            alpaca_ok = True
             
             alpaca_positions = client.get_all_positions()
             open_position_count = len(alpaca_positions)
@@ -168,7 +170,8 @@ async def get_portfolio():
     total_pnl = round(realized_pnl + real_unrealized_pnl, 2)
     return_pct = round(total_pnl / equity * 100, 2) if equity > 0 else 0
     
-    _data_mode = "live" if open_position_count > 0 or equity != 100_000.0 else "fallback"
+    _data_mode = "live" if alpaca_ok else "fallback"
+    _account_source = "alpaca_paper" if alpaca_ok else "unavailable"
     return {
         "equity": round(equity, 2),
         "cash": round(cash, 2),
@@ -181,7 +184,8 @@ async def get_portfolio():
         "risk_used": round(sum(float(getattr(p, "cost_basis", 0) or 0) for p in alpaca_positions) if open_position_count > 0 else abs(real_unrealized_pnl), 2),
         "risk_limit": RISK_LIMITS.max_portfolio_exposure * equity,
         "data_mode": _data_mode,
-        "as_of": datetime.now(timezone.utc).isoformat(),
+        "account_source": _account_source,
+        "retrieved_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -430,8 +434,20 @@ async def submit_consent(decision: ConsentDecision, _: None = Depends(_require_a
         "timestamp": datetime.now().isoformat(),
     })
 
-    # If approved, execute the trade
+    # If approved, execute the trade — but only if account data is available
     if decision.decision == "APPROVE":
+        # Verify account data is still available before executing
+        try:
+            from agents.data_service import _get_trading_client
+            _client = _get_trading_client()
+            if not _client:
+                raise HTTPException(status_code=503, detail="Account data unavailable — execution blocked")
+            _ = _client.get_account()  # Verify connectivity
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Account data unavailable — execution blocked: {e}")
+
         try:
             execution = await asyncio.to_thread(
                 execute_after_consent, decision.trade_number, record["proposal"], consent_dict
