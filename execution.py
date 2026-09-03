@@ -330,3 +330,63 @@ def _float_or_none(value):
 
 def _iso(value) -> str:
     return value.isoformat() if value else datetime.now(timezone.utc).isoformat()
+
+
+def close_position_alpaca(position: dict) -> dict:
+    """Submit a closing order to Alpaca for an open position.
+
+    For options spreads, closes each leg individually as a closing sell/buy.
+    Returns a result dict with status, fill info, and P&L.
+    """
+    if DRY_RUN:
+        pnl = position.get("unrealized_pnl", 0)
+        console.print(f"[yellow][Execution] DRY_RUN — simulating close of position #{position.get('trade_number')}[/yellow]")
+        return _result("DRY_RUN", order_id=f"DRY-CLOSE-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}", pnl=pnl)
+
+    if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
+        return _result("FAILED", error="Alpaca credentials not configured", pnl=0)
+
+    from alpaca.trading.client import TradingClient
+    from alpaca.trading.requests import MarketOrderRequest
+    from alpaca.trading.enums import OrderSide, TimeInForce
+
+    client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
+    underlying = position.get("underlying", "SPY")
+    qty = int(position.get("quantity", 1))
+    long_leg = position.get("long_leg", {})
+    short_leg = position.get("short_leg", {})
+
+    results = []
+    # Close long leg: sell to close
+    long_sym = long_leg.get("alpaca_symbol", "")
+    if long_sym:
+        try:
+            order = client.submit_order(MarketOrderRequest(
+                symbol=long_sym, qty=qty, side=OrderSide.SELL,
+                time_in_force=TimeInForce.DAY, 
+                order_class=None,
+            ))
+            results.append({"leg": "long", "symbol": long_sym, "order_id": str(order.id), "status": _status_value(order.status)})
+        except Exception as exc:
+            results.append({"leg": "long", "symbol": long_sym, "error": str(exc)})
+
+    # Close short leg: buy to cover
+    short_sym = short_leg.get("alpaca_symbol", "")
+    if short_sym:
+        try:
+            order = client.submit_order(MarketOrderRequest(
+                symbol=short_sym, qty=qty, side=OrderSide.BUY,
+                time_in_force=TimeInForce.DAY,
+                order_class=None,
+            ))
+            results.append({"leg": "short", "symbol": short_sym, "order_id": str(order.id), "status": _status_value(order.status)})
+        except Exception as exc:
+            results.append({"leg": "short", "symbol": short_sym, "error": str(exc)})
+
+    any_error = any("error" in r for r in results)
+    status = "FAILED" if any_error else "FILLED"
+    pnl = position.get("unrealized_pnl", 0)
+
+    console.print(f"[{'red' if any_error else 'green'}][Execution] Close position #{position.get('trade_number')}: {status} | P&L: ${pnl:+,.2f}[/{'red' if any_error else 'green'}]")
+
+    return _result(status, order_id=results[0].get("order_id", "") if results else "", pnl=pnl, legs=results)

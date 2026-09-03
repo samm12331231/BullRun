@@ -61,9 +61,14 @@ def run(regime_result: dict, portfolio_state: dict | None = None) -> dict:
     )
 
     if not chain:
-        console.print("[yellow][Quant] Live chain unavailable — creating structured options candidates[/yellow]")
-        # Synthetic high-quality candidates around ATM for offline demo/paper testing
-        chain = _generate_synthetic_chain(UNDERLYING, current_price, option_type, min_dte)
+        console.print("[red][Quant] Live option chain unavailable — cannot price trade safely. NO_TRADE.[/red]")
+        return {
+            "signal": "NO_TRADE",
+            "reason": "Live Alpaca option chain unavailable; refusing to trade on synthetic data",
+            "structure": structure,
+            "underlying": UNDERLYING,
+            "regime": regime,
+        }
 
     console.print(f"[dim]Analyzing {len(chain)} contracts for optimal delta spread...[/dim]")
 

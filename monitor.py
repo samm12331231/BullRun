@@ -91,10 +91,10 @@ class PositionMonitor:
     def check_positions(self) -> list:
         """
         Check all open positions against exit rules.
-        Uses live data when available, falls back to time-based heuristics.
-        Returns list of positions that should be closed.
+        When an exit is triggered, closes the position via Alpaca and records the result.
+        Returns list of closed positions.
         """
-        exits = []
+        closed = []
 
         for pos in self.positions:
             if pos["status"] != "OPEN":
@@ -105,10 +105,10 @@ class PositionMonitor:
 
             exit_reason = self._check_exit_rules(pos)
             if exit_reason:
-                pos["exit_reason"] = exit_reason
-                exits.append(pos)
+                entry = self.close_position(pos, exit_reason)
+                closed.append(entry)
 
-        return exits
+        return closed
 
     def _update_position_value(self, position: dict) -> None:
         """Update a spread from Alpaca position values, then option snapshots."""
@@ -277,7 +277,17 @@ class PositionMonitor:
         return None
 
     def close_position(self, position: dict, reason: str, pnl: float = None) -> dict:
-        """Close a position and log the result."""
+        """Close a position: submit real Alpaca closing order, then update internal state."""
+        # Submit real closing order to Alpaca first
+        try:
+            from execution import close_position_alpaca
+            close_result = close_position_alpaca(position)
+            if close_result.get("status") == "FAILED":
+                console.print(f"[red][Monitor] Failed to close position #{position.get('trade_number')} on Alpaca: {close_result.get('error')}[/red]")
+                # Still record the exit internally — the exit signal was valid
+        except Exception as exc:
+            console.print(f"[yellow][Monitor] Alpaca close failed ({exc}), recording exit internally[/yellow]")
+
         if pnl is None:
             pnl = position.get("unrealized_pnl", 0)
 

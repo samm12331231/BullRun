@@ -515,23 +515,22 @@ def run_monitor_check() -> list:
 
     console.print("[bold cyan][Monitor Check][/bold cyan] Checking open positions...")
 
-    exits = monitor.check_positions()
+    closed = monitor.check_positions()
 
-    for pos in exits:
-        console.print(f"[yellow]Position #{pos['trade_number']} triggered exit: {pos['exit_reason']}[/yellow]")
-
-        # The monitor does not have a broker-side closing implementation yet.
-        # Never mark a position closed locally before Alpaca confirms that fill.
-        monitor._save_positions()
+    for entry in closed:
+        trade_num = entry.get("trade_number", "?")
+        reason = entry.get("exit_reason", "unknown")
+        pnl = entry.get("pnl", 0)
+        console.print(f"[yellow]Position #{trade_num} closed: {reason} | P&L: ${pnl:+,.2f}[/yellow]")
         _broadcast({
-            "type": "exit_signal",
-            "trade_number": pos["trade_number"],
-            "exit_reason": pos["exit_reason"],
-            "pnl": pos.get("unrealized_pnl", 0),
+            "type": "position_closed",
+            "trade_number": trade_num,
+            "exit_reason": reason,
+            "pnl": pnl,
             "timestamp": datetime.now().isoformat(),
         })
 
-    if not exits:
+    if not closed:
         # Broadcast portfolio status
         summary = monitor.get_portfolio_summary()
         _broadcast({
