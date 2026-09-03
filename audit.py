@@ -245,7 +245,17 @@ def verify_chain() -> dict:
                 "expected": prev_hash,
                 "found": stored_prev,
             })
-        prev_hash = event.get("hash", "")
+        stored_hash = event.get("hash", "")
+        unsigned_event = {key: value for key, value in event.items() if key != "hash"}
+        expected_hash = _compute_hash(unsigned_event)
+        if stored_hash != expected_hash:
+            broken_links.append({
+                "sequence": event.get("sequence", i + 1),
+                "expected": expected_hash,
+                "found": stored_hash,
+                "reason": "event contents do not match stored hash",
+            })
+        prev_hash = stored_hash
 
     return {
         "total_events": len(events),

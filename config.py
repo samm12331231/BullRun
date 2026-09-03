@@ -11,8 +11,9 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import Literal
 
-# Load .env file (overrides any env vars already set)
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+# Load local development values without overriding injected deployment secrets.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"), override=False)
 
 
 # ── Alpaca API Settings ─────────────────────────────────────────────────────
@@ -158,5 +159,6 @@ MARKET_CLOSE_MINUTE = 0
 
 
 # ── File Paths ──────────────────────────────────────────────────────────────
-AUDIT_LOG = "audit_trades.jsonl"
-TRADE_HISTORY = "trade_history.json"
+AUDIT_LOG = os.path.join(BASE_DIR, "audit_trades.jsonl")
+TRADE_HISTORY = os.path.join(BASE_DIR, "trade_history.json")
+POSITIONS_FILE = os.path.join(BASE_DIR, "positions.json")

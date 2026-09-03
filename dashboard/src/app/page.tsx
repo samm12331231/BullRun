@@ -12,12 +12,14 @@ import {
   fetchRegime,
   fetchLearningProgress,
   fetchTickers,
+  fetchBacktest,
   type PortfolioData,
   type LearningProgress,
   type RegimeData,
   type AuditEntry,
   type TradeProposal,
   type TickerQuote,
+  type BacktestResult,
 } from "@/lib/useWebSocket";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -129,6 +131,7 @@ export default function Dashboard() {
   const [activeProposal, setActiveProposal] = useState<TradeProposal | null>(null);
   const [scanning, setScanning] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState<"proposal" | "academy">("proposal");
+  const [backtest, setBacktest] = useState<BacktestResult | null>(null);
 
   // No mock data on mount — let real API data populate
 
@@ -148,6 +151,10 @@ export default function Dashboard() {
       if (l.status === "fulfilled" && l.value) setLearning(l.value);
       if (tick.status === "fulfilled" && tick.value) setTickers(tick.value);
       if (chart.status === "fulfilled" && chart.value?.data) setChartData(chart.value.data);
+      // Fetch backtest (heavier, only once)
+      if (!backtest) {
+        fetchBacktest().then(bt => { if (bt) setBacktest(bt); }).catch(() => {});
+      }
     } catch {
       // Fallback to offline defaults
     }
@@ -489,6 +496,74 @@ export default function Dashboard() {
           </div>
         </div>
       </main>
+
+      {/* ── Backtest Section ──────────────────────────────────────────── */}
+      {backtest && (
+        <section className="mx-4 mb-3 bg-[#0d131f] rounded-xl border border-slate-800/60 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-slate-200">Historical Backtest</h3>
+            <span className="text-[10px] text-slate-500 font-mono">{backtest.summary.backtest_period}</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
+            <div>
+              <div className="text-[10px] text-slate-500 uppercase">Total P&L</div>
+              <div className={`text-lg font-bold font-mono ${backtest.summary.total_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                ${backtest.summary.total_pnl >= 0 ? '+' : ''}{backtest.summary.total_pnl.toLocaleString(undefined, {minimumFractionDigits: 2})}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] text-slate-500 uppercase">Win Rate</div>
+              <div className="text-lg font-bold font-mono text-slate-200">{backtest.summary.win_rate_pct}%</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-slate-500 uppercase">Trades</div>
+              <div className="text-lg font-bold font-mono text-slate-200">{backtest.summary.total_trades} <span className="text-xs text-slate-500">({backtest.summary.winning_trades}W/{backtest.summary.losing_trades}L)</span></div>
+            </div>
+            <div>
+              <div className="text-[10px] text-slate-500 uppercase">Max Drawdown</div>
+              <div className="text-lg font-bold font-mono text-amber-400">{backtest.summary.max_drawdown_pct}%</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-slate-500 uppercase">Gate Rejections</div>
+              <div className="text-lg font-bold font-mono text-slate-200">{backtest.summary.risk_gate_rejections}</div>
+            </div>
+          </div>
+          {/* Equity curve mini chart */}
+          <div className="h-16 relative">
+            {(() => {
+              const ec = backtest.equity_curve;
+              if (ec.length === 0) return null;
+              const vals = ec.map(e => e.equity);
+              const min = Math.min(...vals);
+              const max = Math.max(...vals);
+              const range = max - min || 1;
+              const w = 100 / ec.length;
+              const path = ec.map((e, i) => {
+                const x = i * w;
+                const y = 100 - ((e.equity - min) / range) * 100;
+                return `${i === 0 ? 'M' : 'L'}${x},${y}`;
+              }).join(' ');
+              return (
+                <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
+                  <path d={path} fill="none" stroke="#22c55e" strokeWidth="0.8" vectorEffect="non-scaling-stroke" />
+                </svg>
+              );
+            })()}
+          </div>
+          {/* Trade list */}
+          <div className="mt-2 space-y-1">
+            {backtest.trades.map((t, i) => (
+              <div key={i} className="flex items-center gap-3 text-[11px] font-mono">
+                <span className={t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{t.pnl >= 0 ? '▲' : '▼'}</span>
+                <span className="text-slate-400">{t.entry_date} → {t.exit_date}</span>
+                <span className="text-slate-300">{t.strategy} {t.qty}x</span>
+                <span className={t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}>${t.pnl >= 0 ? '+' : ''}{t.pnl.toFixed(2)}</span>
+                <span className="text-slate-500">{t.exit_reason}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ── Footer ───────────────────────────────────────────────────── */}
       <footer className="border-t border-slate-800/80 bg-[#0d131f] px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-400">

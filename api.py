@@ -319,6 +319,22 @@ async def get_chart_data():
             get_chart_data._cache = {"ts": now, "data": []}
     return {"data": get_chart_data._cache["data"]}
 
+@app.get("/api/backtest")
+async def get_backtest():
+    """Run historical backtest and return equity curve + stats."""
+    import time as _time
+    now = _time.time()
+    if not hasattr(get_backtest, '_cache') or now - get_backtest._cache.get('ts', 0) > 600:
+        try:
+            from backtest import run_backtest
+            results = run_backtest()
+            get_backtest._cache = {"ts": now, "data": results}
+        except Exception as e:
+            get_backtest._cache = {"ts": now, "data": {"error": str(e)}}
+    return get_backtest._cache["data"]
+
+
+
 @app.get("/api/market/{symbol}")
 async def get_market_data(symbol: str):
     """Get current market data for a symbol."""

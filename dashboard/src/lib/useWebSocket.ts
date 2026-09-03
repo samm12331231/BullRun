@@ -248,3 +248,49 @@ export async function exploreFeature(feature: string): Promise<LearningProgress>
   return res.json();
 }
 
+export interface BacktestTrade {
+  entry_date: string;
+  exit_date: string;
+  underlying: string;
+  strategy: string;
+  entry_price: number;
+  exit_price: number;
+  qty: number;
+  pnl: number;
+  exit_reason: string;
+  regime_at_entry: string;
+}
+
+export interface BacktestSummary {
+  initial_capital: number;
+  final_capital: number;
+  total_pnl: number;
+  total_return_pct: number;
+  max_drawdown_pct: number;
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  win_rate_pct: number;
+  avg_win: number;
+  avg_loss: number;
+  risk_gate_rejections: number;
+  regime_distribution: Record<string, number>;
+  backtest_period: string;
+  data_points: number;
+}
+
+export interface BacktestResult {
+  summary: BacktestSummary;
+  trades: BacktestTrade[];
+  equity_curve: { date: string; equity: number; regime: string; adx: number; price: number; has_position: boolean }[];
+}
+
+export async function fetchBacktest(): Promise<BacktestResult | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/backtest`);
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
