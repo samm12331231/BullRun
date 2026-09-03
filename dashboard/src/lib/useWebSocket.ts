@@ -294,3 +294,40 @@ export async function fetchBacktest(): Promise<BacktestResult | null> {
   }
 }
 
+export interface SafetyChallenge {
+  scenario: string;
+  description: string;
+  account: { equity: number; risk_limit_pct: number; max_allowed_risk: number };
+  oversized: { proposal: Record<string, unknown>; verdict: string; failed_gates: string[]; risk_pct: number };
+  resized: { proposal: Record<string, unknown>; verdict: string; failed_gates: string[]; risk_pct: number };
+  lesson: string;
+}
+
+export async function fetchSafetyChallenge(): Promise<SafetyChallenge | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/safety-challenge`);
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+export interface ProofData {
+  account: { type: string; paper: boolean; data_mode: string; retrieved_at: string | null; account_data_available: boolean };
+  performance: { starting_equity: number; current_equity: number | null; total_pnl: number; unrealized_pnl: number; combined_pnl: number; total_return_pct: number; open_positions: number; closed_positions: number; win_rate: number; max_drawdown_pct: number };
+  risk_engine: { total_proposals_checked: number; total_blocked: number; pass_rate_pct: number; blocked_by_gate: Record<string, number>; audit_chain_valid: boolean };
+  consent: { approvals: number; rejections: number; total_decisions: number };
+  execution: { total_orders: number; successful_orders: number };
+  commit_hash: string;
+  timestamp: string;
+}
+
+export async function fetchProof(): Promise<ProofData | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/proof`);
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+

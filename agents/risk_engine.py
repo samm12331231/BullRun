@@ -58,6 +58,9 @@ class RiskEngine:
         self._daily_date = date.today()
         self._starting_equity: float | None = None
         self._peak_equity: float | None = None
+        self._total_checked = 0
+        self._total_blocked = 0
+        self._blocked_by_gate: dict[str, int] = {}
         self._load_state()
 
     def _load_state(self):
@@ -367,6 +370,14 @@ class RiskEngine:
         all_pass = all(c["status"] == "PASS" for c in checks)
         critical_fails = [c["name"] for c in checks if c["status"] == "REJECT" and c.get("critical")]
         status = "PASS" if all_pass else "REJECT"
+
+        # Track statistics for proof dashboard
+        self._total_checked += 1
+        if status == "REJECT":
+            self._total_blocked += 1
+            for c in checks:
+                if c["status"] == "REJECT":
+                    self._blocked_by_gate[c["name"]] = self._blocked_by_gate.get(c["name"], 0) + 1
 
         # ── Terminal Logging ──────────────────────────────────────────────
         if all_pass:

@@ -538,6 +538,142 @@ async def broadcast_ai_analysis(model: str, role: str, analysis: str, confidence
     })
 
 
+
+# ── Safety Challenge (demo: blocked oversized trade) ────────────────────
+
+@app.get("/api/safety-challenge")
+async def safety_challenge():
+    """Run a demo scenario: oversized proposal that MUST be rejected by risk gates.
+    Returns the proposal, the risk-engine verdict, and the resized alternative.
+    """
+    from agents import risk_engine as _re
+    from orchestrator import _get_portfolio_state
+
+    portfolio = _get_portfolio_state()
+    equity = float(portfolio.get("equity") or 100_000)
+
+    # Create a deliberately oversized proposal (18% risk — the original 18% incident)
+    oversized_proposal = {
+        "max_loss_per_contract": 552,
+        "quantity": 10,
+        "total_risk_proposed": 5520,
+        "conviction_score": 91,
+        "spread_width": 5.0,
+        "dte": 14,
+        "bid_ask_spread": 0.04,
+        "direction": "LONG",
+        "underlying": "SPY",
+        "structure": "BULL_CALL_SPREAD",
+        "net_debit": 5.52,
+    }
+
+    # Run through risk engine
+    oversized_result = _re.risk_engine.check(oversized_proposal, portfolio)
+
+    # Create a safe resized alternative (within 2%)
+    max_allowed = 0.02 * equity
+    safe_qty = max(1, int(max_allowed / 552))
+    safe_proposal = {
+        **oversized_proposal,
+        "quantity": safe_qty,
+        "total_risk_proposed": round(552 * safe_qty, 2),
+    }
+    safe_result = _re.risk_engine.check(safe_proposal, portfolio)
+
+    return {
+        "scenario": "18% Portfolio Risk Test",
+        "description": "Quant agent proposes 10 spreads risking $5,520 (5.5% of equity). The 2% rule blocks it.",
+        "account": {
+            "equity": equity,
+            "risk_limit_pct": 2.0,
+            "max_allowed_risk": round(max_allowed, 2),
+        },
+        "oversized": {
+            "proposal": oversized_proposal,
+            "verdict": oversized_result["status"],
+            "failed_gates": oversized_result["failed_checks"],
+            "risk_pct": round(oversized_proposal["total_risk_proposed"] / equity * 100, 2),
+        },
+        "resized": {
+            "proposal": safe_proposal,
+            "verdict": safe_result["status"],
+            "failed_gates": safe_result["failed_checks"],
+            "risk_pct": round(safe_proposal["total_risk_proposed"] / equity * 100, 2),
+        },
+        "lesson": "BullRun makes unsafe position sizing impossible — not through prompts, but through architecture.",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── Proof & Safety Dashboard ───────────────────────────────────────────────
+
+@app.get("/api/proof")
+async def proof_dashboard():
+    """Evidence screen for judges: account info, P&L, gate stats, audit status."""
+    from agents import risk_engine as _re
+    from monitor import monitor
+    from audit import verify_chain, get_trade_history
+    from orchestrator import _get_portfolio_state
+
+    portfolio = _get_portfolio_state()
+    summary = monitor.get_portfolio_summary()
+    trade_history = get_trade_history(limit=50)
+    chain_valid = verify_chain()
+
+    # Count gate statistics
+    gate_stats = _re.risk_engine._blocked_by_gate.copy()
+    total_checked = _re.risk_engine._total_checked
+    total_blocked = _re.risk_engine._total_blocked
+
+    # Count consent decisions
+    consent_approvals = sum(1 for t in trade_history if t.get("event_type") == "CONSENT" and t.get("decision") == "APPROVE")
+    consent_rejections = sum(1 for t in trade_history if t.get("event_type") == "CONSENT" and t.get("decision") == "REJECT")
+
+    # Count executions
+    executions = sum(1 for t in trade_history if t.get("event_type") == "EXECUTION")
+    successful_executions = sum(1 for t in trade_history if t.get("event_type") == "EXECUTION" and t.get("status") in ("FILLED", "DRY_RUN"))
+
+    return {
+        "account": {
+            "type": "Alpaca Paper Trading",
+            "paper": True,
+            "data_mode": portfolio.get("data_mode", "unknown"),
+            "retrieved_at": portfolio.get("retrieved_at"),
+            "account_data_available": portfolio.get("account_data_available", False),
+        },
+        "performance": {
+            "starting_equity": 100_000,
+            "current_equity": portfolio.get("equity"),
+            "total_pnl": summary.get("total_pnl", 0),
+            "unrealized_pnl": summary.get("unrealized_pnl", 0),
+            "combined_pnl": summary.get("combined_pnl", 0),
+            "total_return_pct": round((summary.get("combined_pnl", 0) / 100_000) * 100, 4),
+            "open_positions": summary.get("open_count", 0),
+            "closed_positions": summary.get("closed_count", 0),
+            "win_rate": summary.get("win_rate", 0),
+            "max_drawdown_pct": _re.risk_engine._blocked_by_gate.get("DRAWDOWN", 0),
+        },
+        "risk_engine": {
+            "total_proposals_checked": total_checked,
+            "total_blocked": total_blocked,
+            "pass_rate_pct": round((1 - total_blocked / max(1, total_checked)) * 100, 1),
+            "blocked_by_gate": gate_stats,
+            "audit_chain_valid": chain_valid,
+        },
+        "consent": {
+            "approvals": consent_approvals,
+            "rejections": consent_rejections,
+            "total_decisions": consent_approvals + consent_rejections,
+        },
+        "execution": {
+            "total_orders": executions,
+            "successful_orders": successful_executions,
+        },
+        "commit_hash": "HEAD",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -5,6 +5,7 @@ import PriceChart from "@/components/Chart";
 import TradeCard from "@/components/TradeCard";
 import PayoffDiagram from "@/components/PayoffDiagram";
 import TeachingPanel from "@/components/TeachingPanel";
+import ProofTab from "@/components/ProofTab";
 import {
   useWebSocket,
   fetchPortfolio,
@@ -36,7 +37,7 @@ export default function Dashboard() {
   const [chartData, setChartData] = useState<Array<{ time: string; open: number; high: number; low: number; close: number; volume: number }>>([]);
   const [activeProposal, setActiveProposal] = useState<TradeProposal | null>(null);
   const [scanning, setScanning] = useState(false);
-  const [rightPanelTab, setRightPanelTab] = useState<"proposal" | "academy">("proposal");
+  const [rightPanelTab, setRightPanelTab] = useState<"proposal" | "academy" | "proof">("proposal");
   const [backtest, setBacktest] = useState<BacktestResult | null>(null);
 
   // No mock data on mount — let real API data populate
@@ -335,7 +336,7 @@ export default function Dashboard() {
           {/* Right Column: Toggleable Proposal & Teaching Academy (5 Cols) */}
           <div className="xl:col-span-5 space-y-4">
             {/* View Switcher Bar */}
-            <div className="glass-card p-1.5 grid grid-cols-2 gap-1 text-xs font-mono">
+            <div className="glass-card p-1.5 grid grid-cols-3 gap-1 text-xs font-mono">
               <button
                 onClick={() => setRightPanelTab("proposal")}
                 className={`py-2 px-3 rounded-lg font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
@@ -344,7 +345,7 @@ export default function Dashboard() {
                     : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                <span>⚡</span> Active Trade Proposal
+                <span>⚡</span> Proposal
               </button>
               <button
                 onClick={() => setRightPanelTab("academy")}
@@ -354,7 +355,17 @@ export default function Dashboard() {
                     : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                <span>🎓</span> Trading Academy
+                <span>🎓</span> Academy
+              </button>
+              <button
+                onClick={() => setRightPanelTab("proof")}
+                className={`py-2 px-3 rounded-lg font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                  rightPanelTab === "proof"
+                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <span>🛡️</span> Proof & Safety
               </button>
             </div>
 
@@ -392,6 +403,8 @@ export default function Dashboard() {
                   </button>
                 </div>
               )
+            ) : rightPanelTab === "proof" ? (
+              <ProofTab />
             ) : (
               <TeachingPanel
                 learning={learning}
