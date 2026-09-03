@@ -23,6 +23,37 @@ from rich.rule import Rule
 
 from agents import scout_agent, quant_agent, risk_engine, cio_agent
 from trade_card import render_trade_card
+
+
+def _get_portfolio_state() -> dict:
+    """Fetch real portfolio state from Alpaca; fall back to monitor's internal book only if Alpaca is unreachable."""
+    equity = None
+    cash = None
+    try:
+        from agents.data_service import _get_trading_client
+        client = _get_trading_client()
+        if client:
+            account = client.get_account()
+            equity = float(account.equity)
+            cash = float(account.cash)
+    except Exception:
+        pass
+
+    open_positions = monitor.get_open_positions()
+    monitor_summary = monitor.get_portfolio_summary()
+
+    if equity is None:
+        # Alpaca unreachable — use monitor's internal book (still better than hardcoded $100K)
+        equity = 100_000 + monitor_summary["combined_pnl"]
+        cash = 100_000 - sum(p.get("net_debit", 0) or 0 for p in open_positions) * 100
+
+    return {
+        "open_position_count": len(open_positions),
+        "current_portfolio_exposure": sum(p.get("max_loss", 0) or 0 for p in open_positions),
+        "available_cash": cash,
+        "equity": equity,
+        "open_positions": open_positions,
+    }
 from consent_gate import run as consent_run
 from execution import run as execution_run
 from monitor import monitor, render_dashboard
@@ -121,7 +152,9 @@ def run_pipeline() -> dict:
     # ── Stage 2: Quant — Options Structure Selection ─────────────────────
     console.print(f"\n[bold cyan]Stage 2/5:[/bold cyan] Quant selecting options structure...")
     try:
-        proposal = quant_agent.run(regime_result)
+        _ps = _get_portfolio_state()
+        proposal = quant_agent.run(regime_result, _ps)
+        proposal["account_value"] = _ps["equity"]
         results["proposal"] = proposal
     except Exception as e:
         console.print(f"[bold red][Orchestrator] Quant failed: {e}[/bold red]")
@@ -168,15 +201,7 @@ def run_pipeline() -> dict:
     # ── Stage 3: Risk Engine — Deterministic Validation ──────────────────
     console.print(f"\n[bold cyan]Stage 3/5:[/bold cyan] Risk Engine validating...")
     try:
-        portfolio_state = {
-            "open_position_count": len(monitor.get_open_positions()),
-            "current_portfolio_exposure": sum(
-                p.get("max_loss", 0) or 0 for p in monitor.get_open_positions()
-            ),
-            "available_cash": 100_000 - sum(p.get("net_debit", 0) or 0 for p in monitor.get_open_positions()) * 100,
-            "equity": 100_000 + monitor.get_portfolio_summary()["combined_pnl"],
-            "open_positions": monitor.get_open_positions(),
-        }
+        portfolio_state = _get_portfolio_state()
         risk_engine.risk_engine.update_daily_pnl(monitor.get_portfolio_summary()["daily_pnl"] - risk_engine.risk_engine._daily_pnl)
         risk_engine.risk_engine.update_equity(portfolio_state["equity"])
         risk_check = risk_engine.risk_engine.check(proposal, portfolio_state)
@@ -331,7 +356,9 @@ def run_pipeline_web() -> dict:
     # Stage 2: Quant
     console.print(f"\n[bold cyan]Stage 2/4:[/bold cyan] Quant selecting options structure...")
     try:
-        proposal = quant_agent.run(regime_result)
+        _ps = _get_portfolio_state()
+        proposal = quant_agent.run(regime_result, _ps)
+        proposal["account_value"] = _ps["equity"]
         results["proposal"] = proposal
     except Exception as e:
         console.print(f"[bold red][Orchestrator] Quant failed: {e}[/bold red]")
@@ -355,13 +382,7 @@ def run_pipeline_web() -> dict:
     # Stage 3: Risk Engine
     console.print(f"\n[bold cyan]Stage 3/4:[/bold cyan] Risk Engine validating...")
     try:
-        portfolio_state = {
-            "open_position_count": len(monitor.get_open_positions()),
-            "current_portfolio_exposure": sum(p.get("max_loss", 0) or 0 for p in monitor.get_open_positions()),
-            "available_cash": 100_000 - sum(p.get("net_debit", 0) or 0 for p in monitor.get_open_positions()) * 100,
-            "equity": 100_000 + monitor.get_portfolio_summary()["combined_pnl"],
-            "open_positions": monitor.get_open_positions(),
-        }
+        portfolio_state = _get_portfolio_state()
         risk_engine.risk_engine.update_daily_pnl(monitor.get_portfolio_summary()["daily_pnl"] - risk_engine.risk_engine._daily_pnl)
         risk_engine.risk_engine.update_equity(portfolio_state["equity"])
         risk_check = risk_engine.risk_engine.check(proposal, portfolio_state)

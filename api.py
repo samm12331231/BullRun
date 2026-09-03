@@ -135,13 +135,12 @@ async def root():
 @app.get("/api/portfolio")
 async def get_portfolio():
     """Get current portfolio state from Alpaca."""
-    summary = get_trade_summary()
-    
-    # Try to get real data from Alpaca
+    # Try to get real data from Alpaca first
     equity = 100_000.0
     cash = 100_000.0
     open_position_count = 0
     real_unrealized_pnl = 0.0
+    alpaca_positions = []
     
     try:
         from agents.data_service import _get_trading_client
@@ -151,11 +150,13 @@ async def get_portfolio():
             equity = float(account.equity)
             cash = float(account.cash)
             
-            positions = client.get_all_positions()
-            open_position_count = len(positions)
-            real_unrealized_pnl = sum(float(p.unrealized_pl) for p in positions)
+            alpaca_positions = client.get_all_positions()
+            open_position_count = len(alpaca_positions)
+            real_unrealized_pnl = sum(float(p.unrealized_pl) for p in alpaca_positions)
     except Exception as e:
         print(f"[Portfolio] Alpaca fetch failed: {e}")
+    
+    summary = get_trade_summary(equity)
     
     # Use real position count from Alpaca, fall back to audit trail
     display_positions = open_position_count if open_position_count > 0 else (
@@ -167,6 +168,7 @@ async def get_portfolio():
     total_pnl = round(realized_pnl + real_unrealized_pnl, 2)
     return_pct = round(total_pnl / equity * 100, 2) if equity > 0 else 0
     
+    _data_mode = "live" if open_position_count > 0 or equity != 100_000.0 else "fallback"
     return {
         "equity": round(equity, 2),
         "cash": round(cash, 2),
@@ -176,8 +178,10 @@ async def get_portfolio():
         "open_positions": display_positions,
         "total_trades": summary.get("total_proposals", 0),
         "win_rate": summary.get("win_rate", 0),
-        "risk_used": round(sum(float(getattr(p, "cost_basis", 0) or 0) for p in positions) if open_position_count > 0 else abs(real_unrealized_pnl), 2),
+        "risk_used": round(sum(float(getattr(p, "cost_basis", 0) or 0) for p in alpaca_positions) if open_position_count > 0 else abs(real_unrealized_pnl), 2),
         "risk_limit": RISK_LIMITS.max_portfolio_exposure * equity,
+        "data_mode": _data_mode,
+        "as_of": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -212,11 +216,21 @@ async def get_positions():
 @app.get("/api/risk-limits")
 async def get_risk_limits():
     """Get current risk engine configuration."""
+    # Fetch real equity for accurate dollar limits
+    _equity = 100_000.0
+    try:
+        from agents.data_service import _get_trading_client
+        _client = _get_trading_client()
+        if _client:
+            _equity = float(_client.get_account().equity)
+    except Exception:
+        pass
+
     return {
         "max_risk_per_trade_pct": RISK_LIMITS.max_risk_per_trade,
-        "max_risk_per_trade_dollars": RISK_LIMITS.max_risk_per_trade * 100_000,
+        "max_risk_per_trade_dollars": RISK_LIMITS.max_risk_per_trade * _equity,
         "max_portfolio_exposure_pct": RISK_LIMITS.max_portfolio_exposure,
-        "max_portfolio_exposure_dollars": RISK_LIMITS.max_portfolio_exposure * 100_000,
+        "max_portfolio_exposure_dollars": RISK_LIMITS.max_portfolio_exposure * _equity,
         "max_concurrent_positions": RISK_LIMITS.max_concurrent_positions,
         "max_spread_width": RISK_LIMITS.max_spread_width,
         "min_dte": RISK_LIMITS.min_dte,

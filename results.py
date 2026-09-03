@@ -119,7 +119,7 @@ def generate_learning_report(position: dict, trade_number: int) -> str:
     return str(content)
 
 
-def generate_session_summary(positions: list) -> None:
+def generate_session_summary(positions: list, equity: float = 100_000.0) -> None:
     """Generate an end-of-session summary of all trades."""
 
     if not positions:
@@ -144,7 +144,7 @@ def generate_session_summary(positions: list) -> None:
     content.append(f"  Losers:           {losses}\n", style="red")
     content.append(f"  Win Rate:         {win_rate:.1f}%\n", style="bold white")
     content.append(f"  Total P&L:        ${total_pnl:+,.2f}\n", style=f"bold {pnl_color}")
-    content.append(f"  Return:           {(total_pnl / 100_000 * 100):+.2f}%\n", style=f"bold {pnl_color}")
+    content.append(f"  Return:           {(total_pnl / equity * 100):+.2f}%\n" if equity > 0 else f"  Return:           N/A\n", style=f"bold {pnl_color}")
 
     console.print()
     console.print(Panel(

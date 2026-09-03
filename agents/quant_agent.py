@@ -26,7 +26,7 @@ from agents.data_service import get_option_chain
 console = Console()
 
 
-def run(regime_result: dict) -> dict:
+def run(regime_result: dict, portfolio_state: dict | None = None) -> dict:
     """Main entry point. Selects options structure based on regime."""
 
     regime = regime_result["regime"]
@@ -85,7 +85,8 @@ def run(regime_result: dict) -> dict:
     score = conviction["score"]
     max_loss_contract = result.get("max_loss_per_contract", 250.0)
     from config import RISK_LIMITS as _RL
-    max_risk_allowed = _RL.max_risk_per_trade * 100_000
+    equity = float((portfolio_state or {}).get("equity", 100_000))
+    max_risk_allowed = _RL.max_risk_per_trade * equity
 
     if score >= 93:
         target_contracts = 3

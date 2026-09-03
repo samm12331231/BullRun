@@ -138,13 +138,7 @@ def handle_tool_call(name: str, arguments: dict) -> dict:
 
         elif name == "risk_engine_validate":
             proposal = arguments.get("proposal", {})
-            portfolio_state = {
-                "open_position_count": len(monitor.get_open_positions()),
-                "current_portfolio_exposure": sum(p.get("max_loss", 0) or 0 for p in monitor.get_open_positions()),
-                "available_cash": 100_000,
-                "equity": 100_000,
-                "open_positions": monitor.get_open_positions(),
-            }
+            portfolio_state = orchestrator._get_portfolio_state()
             res = risk_engine.risk_engine.check(proposal, portfolio_state)
             return {"content": [{"type": "text", "text": json.dumps(res, indent=2, default=str)}]}
 

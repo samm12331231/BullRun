@@ -194,7 +194,7 @@ def get_trade_history() -> list:
     return events
 
 
-def get_trade_summary() -> dict:
+def get_trade_summary(equity: float = 100_000.0) -> dict:
     """Generate a summary from the audit trail."""
     events = get_trade_history()
 
@@ -222,7 +222,7 @@ def get_trade_summary() -> dict:
         "losses": losses,
         "win_rate": round(wins / len(exits) * 100, 1) if exits else 0,
         "total_pnl": round(total_pnl, 2),
-        "return_pct": round(total_pnl / 100_000 * 100, 2),
+        "return_pct": round(total_pnl / equity * 100, 2) if equity > 0 else 0,
         "chain_length": len(events),
         "last_hash": _last_hash,
     }

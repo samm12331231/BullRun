@@ -383,7 +383,7 @@ class PositionMonitor:
         }
 
 
-def render_dashboard(monitor: PositionMonitor) -> None:
+def render_dashboard(monitor: PositionMonitor, equity: float = 100_000.0) -> None:
     """Render the portfolio dashboard."""
     summary = monitor.get_portfolio_summary()
     open_pos = monitor.get_open_positions()
@@ -415,7 +415,7 @@ def render_dashboard(monitor: PositionMonitor) -> None:
     )
     summary_table.add_row(
         "Current Risk", f"[{risk_color}]${summary['total_risk']:,.0f}[/{risk_color}]",
-        "Max Risk (2%)", f"${RISK_LIMITS.max_risk_per_trade * 100_000:,.0f}/trade",
+        "Max Risk (2%)", f"${RISK_LIMITS.max_risk_per_trade * equity:,.0f}/trade",
     )
 
     console.print(summary_table)
