@@ -1,11 +1,32 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import {
+  Search,
+  TrendingUp,
+  TrendingDown,
+  ShieldCheck,
+  BarChart3,
+  BookOpen,
+  FileCheck,
+  Layers,
+  Clock,
+  Zap,
+  AlertTriangle,
+} from "lucide-react";
 import PriceChart from "@/components/Chart";
 import TradeCard from "@/components/TradeCard";
 import PayoffDiagram from "@/components/PayoffDiagram";
 import TeachingPanel from "@/components/TeachingPanel";
 import ProofTab from "@/components/ProofTab";
+import AppHeader from "@/components/AppHeader";
+import SystemStatusStrip from "@/components/SystemStatusStrip";
+import MetricCard from "@/components/MetricCard";
+import SectionHeading from "@/components/SectionHeading";
+import RiskSummary from "@/components/RiskSummary";
+import EmptyState from "@/components/EmptyState";
+import StatusBadge from "@/components/StatusBadge";
+import { cn } from "@/lib/cn";
 import {
   useWebSocket,
   fetchPortfolio,
@@ -25,8 +46,6 @@ import {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-// ── Main Dashboard Component ───────────────────────────────────────────────
-
 export default function Dashboard() {
   const { connected, pendingProposal } = useWebSocket();
   const [portfolio, setPortfolio] = useState<PortfolioData | null>(null);
@@ -39,8 +58,6 @@ export default function Dashboard() {
   const [scanning, setScanning] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState<"proposal" | "academy" | "proof">("proposal");
   const [backtest, setBacktest] = useState<BacktestResult | null>(null);
-
-  // No mock data on mount — let real API data populate
 
   const loadData = useCallback(async () => {
     try {
@@ -58,14 +75,13 @@ export default function Dashboard() {
       if (l.status === "fulfilled" && l.value) setLearning(l.value);
       if (tick.status === "fulfilled" && tick.value) setTickers(tick.value);
       if (chart.status === "fulfilled" && chart.value?.data) setChartData(chart.value.data);
-      // Fetch backtest (heavier, only once)
       if (!backtest) {
         fetchBacktest().then(bt => { if (bt) setBacktest(bt); }).catch(() => {});
       }
     } catch {
-      // Fallback to offline defaults
+      // offline defaults
     }
-  }, []);
+  }, [backtest]);
 
   useEffect(() => {
     loadData();
@@ -96,289 +112,208 @@ export default function Dashboard() {
   };
 
   const regimeBadge = (r: string) => {
-    const cls =
-      r === "BULLISH"
-        ? "badge-bullish"
-        : r === "BEARISH"
-          ? "badge-bearish"
-          : r === "VOLATILE"
-            ? "badge-volatile"
-            : r === "WATCHING"
-              ? "badge-watching"
-              : "badge-neutral";
-    return <span className={`terminal-badge ${cls}`}>{r}</span>;
+    const variant =
+      r === "BULLISH" ? "accent" as const :
+      r === "BEARISH" ? "danger" as const :
+      r === "VOLATILE" ? "warning" as const :
+      "muted" as const;
+    return <StatusBadge variant={variant}>{r}</StatusBadge>;
   };
 
   const eventIcon = (event: string) => {
-    const map: Record<string, { icon: string; color: string }> = {
-      SCOUT_SCAN: { icon: "🔭", color: "text-cyan-400" },
-      QUANT_PROPOSAL: { icon: "📐", color: "text-blue-400" },
-      RISK_VALIDATED: { icon: "🛡️", color: "text-emerald-400" },
-      CIO_THESIS: { icon: "🎙️", color: "text-purple-400" },
-      CONSENT_GATE: { icon: "👤", color: "text-amber-400" },
-      EXECUTION_FILLED: { icon: "⚡", color: "text-emerald-400" },
-      EXIT_TAKEN: { icon: "📊", color: "text-rose-400" },
+    const map: Record<string, React.ReactNode> = {
+      SCOUT_SCAN: <Search className="w-3.5 h-3.5 text-[var(--info)]" />,
+      QUANT_PROPOSAL: <Layers className="w-3.5 h-3.5 text-[var(--info)]" />,
+      RISK_VALIDATED: <ShieldCheck className="w-3.5 h-3.5 text-[var(--accent)]" />,
+      CIO_THESIS: <BookOpen className="w-3.5 h-3.5 text-[var(--info)]" />,
+      CONSENT_GATE: <Zap className="w-3.5 h-3.5 text-[var(--warning)]" />,
+      EXECUTION_FILLED: <Zap className="w-3.5 h-3.5 text-[var(--accent)]" />,
+      EXIT_TAKEN: <AlertTriangle className="w-3.5 h-3.5 text-[var(--danger)]" />,
     };
-    return map[event] || { icon: "📝", color: "text-slate-400" };
+    return map[event] || <Clock className="w-3.5 h-3.5 text-[var(--muted)]" />;
   };
 
+  const portfolioExt = portfolio as PortfolioData & { data_mode?: string; retrieved_at?: string | null; account_data_available?: boolean } | null;
+  const dataMode = portfolioExt?.data_mode;
+  const retrievedAt = portfolioExt?.retrieved_at;
+  const accountAvailable = portfolioExt?.account_data_available;
+
   return (
-    <div className="min-h-screen flex flex-col bg-[#080b11] text-[#f8fafc]">
-      {/* ── Top Bar with Live Bloomberg Ticker Tape ──────────────────── */}
-      <header className="border-b border-slate-800/80 bg-[#0d131f]/90 backdrop-blur-md sticky top-0 z-50">
-        {/* Main Brand & Status */}
-        <div className="flex items-center justify-between px-6 py-2.5 border-b border-slate-800/60">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-slate-950 font-black text-base shadow-lg shadow-amber-500/20">
-                ⚡
-              </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-lg font-black tracking-tight text-white font-mono">BULLRUN</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30 uppercase font-semibold">
-                  Alpaca AI Trading Desk
-                </span>
-              </div>
-            </div>
-            <div className="text-xs text-slate-400 font-mono hidden md:block border-l border-slate-800 pl-4">
-              AI proposes · Evidence decides · Humans authorize
-            </div>
-          </div>
+    <div className="min-h-screen flex flex-col bg-[var(--bg)] text-[var(--text)]">
+      {/* ── A. TOP HEADER ──────────────────────────────────────── */}
+      <AppHeader
+        connected={connected}
+        scanning={scanning}
+        dataMode={dataMode}
+        auditValid={true}
+        regime={regime}
+        tickers={tickers}
+        onScan={handleTriggerScan}
+        regimeBadge={regimeBadge}
+      />
 
-          <div className="flex items-center gap-4">
-            <button
-              onClick={handleTriggerScan}
-              disabled={scanning}
-              className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono font-bold text-amber-300 transition-all flex items-center gap-2 cursor-pointer"
-            >
-              <span>{scanning ? "🔄" : "🔍"}</span>
-              <span>{scanning ? "SCANNING PIPELINE..." : "TRIGGER AI SCAN"}</span>
-            </button>
+      {/* ── B. TRUST / STATUS STRIP ───────────────────────────── */}
+      <SystemStatusStrip
+        dataMode={dataMode}
+        accountDataAvailable={accountAvailable}
+        retrievedAt={retrievedAt}
+      />
 
-            {regime && regimeBadge(
-              (regime.metrics?.adx != null && regime.metrics.adx > 25) 
-                ? regime.regime 
-                : "WATCHING"
-            )}
-
-            <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
-              <div className={`w-2.5 h-2.5 rounded-full ${connected ? "bg-emerald-400 pulse-live" : "bg-amber-400"}`} />
-              <span className="text-xs font-mono font-bold text-slate-300">
-                {connected ? "LIVE ALPACARUN" : "DEMO SANDBOX"}
-              </span>
-            </div>
-          </div>
+      {/* ── Main content ───────────────────────────────────────── */}
+      <main className="flex-1 p-4 md:p-5 space-y-4 max-w-[1920px] mx-auto w-full">
+        {/* ── C. TOP METRICS (4 cards) ────────────────────────── */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <MetricCard
+            label="Portfolio Equity"
+            value={portfolio?.equity != null ? `$${portfolio.equity.toLocaleString()}` : "—"}
+            sub={portfolio?.cash != null ? `Cash: $${portfolio.cash.toLocaleString()}` : undefined}
+            variant="accent"
+            icon={<TrendingUp className="w-3.5 h-3.5" />}
+          />
+          <MetricCard
+            label="Total P&L"
+            value={portfolio?.total_pnl != null ? `$${portfolio.total_pnl.toFixed(2)}` : "—"}
+            sub={portfolio?.win_rate != null ? `Win rate: ${portfolio.win_rate}%` : undefined}
+            variant={(portfolio?.total_pnl ?? 0) >= 0 ? "accent" : "danger"}
+            icon={portfolio?.total_pnl != null && portfolio.total_pnl >= 0
+              ? <TrendingUp className="w-3.5 h-3.5" />
+              : <TrendingDown className="w-3.5 h-3.5" />}
+          />
+          <MetricCard
+            label="Risk Used"
+            value={portfolio?.risk_used != null ? `$${Math.round(portfolio.risk_used).toLocaleString()}` : "—"}
+            sub={portfolio?.risk_limit != null ? `of $${Math.round(portfolio.risk_limit).toLocaleString()} limit` : undefined}
+            variant="warning"
+            icon={<BarChart3 className="w-3.5 h-3.5" />}
+          />
+          <MetricCard
+            label="Open Positions"
+            value={portfolio?.open_positions != null ? `${portfolio.open_positions} / 3` : "—"}
+            sub="Max concurrent trades"
+            variant="info"
+            icon={<Layers className="w-3.5 h-3.5" />}
+          />
         </div>
 
-        {/* Real-Time Price Ticker Tape */}
-        <div className="ticker-container px-6 py-1.5 bg-slate-950/60 border-t border-slate-900 flex items-center gap-6 text-xs font-mono overflow-x-auto">
-          <div className="flex items-center gap-1 text-[10px] text-slate-500 uppercase tracking-widest font-bold shrink-0">
-            <span>●</span> TICKER TAPE:
-          </div>
-          {tickers.filter(q => q.price != null).map((quote) => {
-            const isPos = (quote.change_pct ?? 0) >= 0;
-            return (
-              <div key={quote.symbol} className="flex items-center gap-2 shrink-0">
-                <span className="font-bold text-slate-200">{quote.symbol}</span>
-                <span className="text-slate-300">${(quote.price ?? 0).toFixed(2)}</span>
-                <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${isPos ? "bg-emerald-500/15 text-emerald-400" : "bg-rose-500/15 text-rose-400"}`}>
-                  {isPos ? "+" : ""}{(quote.change_pct ?? 0).toFixed(2)}%
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </header>
-
-      {/* ── Main Terminal Body ────────────────────────────────────────── */}
-      <main className="flex-1 p-4 md:p-6 space-y-4 max-w-[1920px] mx-auto w-full">
-        {/* Top Metric Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="bloomberg-metric" style={{ "--accent-color": "#f59e0b" } as React.CSSProperties}>
-            <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Total Portfolio Value</div>
-            <div className="text-xl font-bold font-mono text-amber-400 mt-1">
-              ${portfolio?.equity != null ? portfolio.equity.toLocaleString() : "—"}
-            </div>
-            <div className="text-[10px] font-mono text-slate-500">Buying Power: ${portfolio?.cash != null ? portfolio.cash.toLocaleString() : "—"}</div>
-          </div>
-
-          <div className="bloomberg-metric" style={{ "--accent-color": (portfolio?.total_pnl ?? 0) >= 0 ? "#10b981" : "#f43f5e" } as React.CSSProperties}>
-            <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Net Realized P&amp;L</div>
-            <div className={`text-xl font-bold font-mono mt-1 ${(portfolio?.total_pnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-              ${portfolio?.total_pnl != null ? portfolio.total_pnl.toFixed(2) : "—"}
-            </div>
-            <div className="text-[10px] font-mono text-slate-500">Win Rate: {portfolio?.win_rate != null ? `${portfolio.win_rate}%` : "—"}</div>
-          </div>
-
-          <div className="bloomberg-metric" style={{ "--accent-color": "#06b6d4" } as React.CSSProperties}>
-            <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Market Regime</div>
-            <div className="text-xl font-bold font-mono text-cyan-400 mt-1">
-              {regime?.regime ?? "—"}
-            </div>
-            <div className="text-[10px] font-mono text-slate-500">ADX: {regime?.metrics?.adx?.toFixed(1) ?? "—"} · RSI: {regime?.metrics?.rsi?.toFixed(1) ?? "—"}</div>
-          </div>
-
-          <div className="bloomberg-metric" style={{ "--accent-color": "#10b981" } as React.CSSProperties}>
-            <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Active 2% Risk Cap</div>
-            <div className="text-xl font-bold font-mono text-emerald-400 mt-1">
-              $2,000 / Trade
-            </div>
-            <div className="text-[10px] font-mono text-slate-500">              Heat: ${Math.round(portfolio?.risk_used ?? 0).toLocaleString()} / ${Math.round(portfolio?.risk_limit ?? 6000).toLocaleString()}</div>
-          </div>
-
-          <div className="bloomberg-metric" style={{ "--accent-color": "#a855f7" } as React.CSSProperties}>
-            <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Active Positions</div>
-            <div className="text-xl font-bold font-mono text-purple-400 mt-1">
-              {portfolio?.open_positions ?? 0} / 3 Max
-            </div>
-            <div className="text-[10px] font-mono text-slate-500">Correlation Protected</div>
-          </div>
-
-          <div className="bloomberg-metric" style={{ "--accent-color": "#3b82f6" } as React.CSSProperties}>
-            <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Trader Mastery XP</div>
-            <div className="text-xl font-bold font-mono text-blue-400 mt-1">
-              {learning?.level ?? "Beginner"}
-            </div>
-            <div className="text-[10px] font-mono text-slate-500">{learning?.score ?? 0} / 100 Mastery XP</div>
-          </div>
-        </div>
-
-        {/* ── Main 2-Column Grid (Left: Chart/Activity, Right: Proposal/Academy) ── */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
-          {/* Left Column: Interactive Price Chart & Agent Telemetry (7 Cols) */}
+        {/* ── D. CORE DECISION AREA (2-column) ─────────────────── */}
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+          {/* LEFT: Chart + Audit Trail (~7 cols) */}
           <div className="xl:col-span-7 space-y-4">
-            {/* Chart Card */}
-            <div className="glass-card p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono flex items-center gap-2">
-                    <span>📈</span> SPY / S&amp;P 500 ETF TRUST — REAL-TIME REGIME OVERLAY
-                  </div>
-                  <span className="terminal-badge badge-bullish">{regime?.regime === "BULLISH" || regime?.regime === "BEARISH" ? "TREND ALIGNED" : regime?.regime ? "WATCHING" : "SCANNING..."}</span>
-                </div>
-                <div className="text-xs font-mono text-slate-400">
-                  {regime?.metrics?.ema_bullish != null 
-                    ? (regime.metrics.ema_bullish 
-                        ? <span className="text-emerald-400">EMA 20 &gt; EMA 50</span>
-                        : <span className="text-rose-400">EMA 20 &lt; EMA 50</span>)
-                    : <span className="text-slate-400">EMA: --</span>}
-                </div>
-              </div>
-              <div className="h-[380px] w-full">
+            {/* Chart */}
+            <div className="card p-4">
+              <SectionHeading icon={<BarChart3 className="w-3.5 h-3.5" />}>
+                SPY / S&P 500 ETF — Real-Time Regime Overlay
+              </SectionHeading>
+              <div className="h-[360px] w-full">
                 {chartData.length > 0 ? (
-                  <PriceChart data={chartData} symbol={regime?.metrics?.current_price ? "SPY" : "SPY"} />
+                  <PriceChart data={chartData} symbol="SPY" />
                 ) : (
-                  <div className="h-full flex items-center justify-center text-slate-500 font-mono text-xs">
-                    Loading institutional chart feed...
+                  <div className="h-full flex items-center justify-center text-[var(--muted)] font-mono text-xs">
+                    Retrieving market data...
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Multi-Agent Architecture Telemetry Log */}
-            <div className="glass-card p-4 space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
-                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
-                  <span>⚡</span> Multi-Agent Pipeline Activity (Hash-Chained Audit Trail)
-                </div>
-                <span className="text-[11px] font-mono text-amber-400">
-                  SHA-256 Verified ✓
-                </span>
-              </div>
-
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1 font-mono text-xs">
-                {trades.map((t, idx) => {
-                  const iconInfo = eventIcon(t.event);
-                  return (
+            {/* Audit Trail */}
+            <div className="card p-4">
+              <SectionHeading
+                icon={<Clock className="w-3.5 h-3.5" />}
+                action={<StatusBadge variant="accent"><ShieldCheck className="w-3 h-3" />SHA-256 Verified</StatusBadge>}
+              >
+                Agent Pipeline Activity
+              </SectionHeading>
+              <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1 font-mono text-xs">
+                {trades.length === 0 ? (
+                  <div className="text-center py-6 text-[var(--muted)] text-[11px]">
+                    No pipeline activity yet. Trigger a scan to begin.
+                  </div>
+                ) : (
+                  trades.map((t, idx) => (
                     <div
                       key={idx}
-                      className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800/80 flex items-center justify-between transition-colors hover:bg-slate-800/40"
+                      className="p-2.5 rounded-lg bg-[var(--surface-raised)] border border-[var(--border-subtle)] flex items-center justify-between hover:border-[var(--border)] transition-colors"
                     >
-                      <div className="flex items-center gap-3">
-                        <span className="text-base">{iconInfo.icon}</span>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className={`font-bold ${iconInfo.color}`}>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {eventIcon(t.event)}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-[var(--muted-strong)] truncate">
                               {t.event.replace(/_/g, " ")}
                             </span>
                             {t.structure && (
-                              <span className="text-[11px] text-slate-300">
+                              <span className="text-[10px] text-[var(--muted)]">
                                 ({t.structure.replace(/_/g, " ")})
                               </span>
                             )}
                           </div>
-                          <div className="text-[10px] text-slate-500">
-                            Trade #{t.trade_number} ·{" "}
-                            <span suppressHydrationWarning>{new Date(t.timestamp).toLocaleTimeString()}</span>
+                          <div className="text-[10px] text-[var(--muted)]">
+                            Trade #{t.trade_number} · <span suppressHydrationWarning>{new Date(t.timestamp).toLocaleTimeString()}</span>
                           </div>
                         </div>
                       </div>
-
-                      <div>
+                      <div className="shrink-0 ml-2">
                         {t.decision && (
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${t.decision === "APPROVE" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "bg-rose-500/20 text-rose-400 border border-rose-500/40"}`}>
+                          <StatusBadge variant={t.decision === "APPROVE" ? "accent" : "danger"}>
                             {t.decision}
-                          </span>
+                          </StatusBadge>
                         )}
                         {t.status && !t.decision && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-                            {t.status}
-                          </span>
+                          <StatusBadge variant="info">{t.status}</StatusBadge>
                         )}
                       </div>
                     </div>
-                  );
-                })}
+                  ))
+                )}
               </div>
             </div>
           </div>
 
-          {/* Right Column: Toggleable Proposal & Teaching Academy (5 Cols) */}
+          {/* RIGHT: Proposal / Proof / Academy (~5 cols) */}
           <div className="xl:col-span-5 space-y-4">
-            {/* View Switcher Bar */}
-            <div className="glass-card p-1.5 grid grid-cols-3 gap-1 text-xs font-mono">
+            {/* Tab bar */}
+            <div className="tab-bar grid-cols-3">
               <button
                 onClick={() => setRightPanelTab("proposal")}
-                className={`py-2 px-3 rounded-lg font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                  rightPanelTab === "proposal"
-                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
+                aria-selected={rightPanelTab === "proposal"}
               >
-                <span>⚡</span> Proposal
-              </button>
-              <button
-                onClick={() => setRightPanelTab("academy")}
-                className={`py-2 px-3 rounded-lg font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                  rightPanelTab === "academy"
-                    ? "bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <span>🎓</span> Academy
+                <Layers className="w-3.5 h-3.5" />
+                Proposal
               </button>
               <button
                 onClick={() => setRightPanelTab("proof")}
-                className={`py-2 px-3 rounded-lg font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                  rightPanelTab === "proof"
-                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
+                aria-selected={rightPanelTab === "proof"}
               >
-                <span>🛡️</span> Proof & Safety
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Proof &amp; Safety
+              </button>
+              <button
+                onClick={() => setRightPanelTab("academy")}
+                aria-selected={rightPanelTab === "academy"}
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                Academy
               </button>
             </div>
 
-            {/* Right Panel View Modes */}
+            {/* Tab content */}
             {rightPanelTab === "proposal" ? (
               activeProposal ? (
                 <div className="space-y-4">
                   <TradeCard
                     proposal={activeProposal}
-                    onDecision={() => {
-                      loadData();
-                    }}
+                    onDecision={() => { loadData(); }}
                   />
+                  {/* Risk summary */}
+                  {activeProposal.risk_check && (
+                    <div className="card p-4">
+                      <RiskSummary
+                        checks={activeProposal.risk_check.checks}
+                        allPassed={activeProposal.risk_check.all_passed}
+                        failedChecks={activeProposal.risk_check.failed_checks}
+                      />
+                    </div>
+                  )}
                   <PayoffDiagram
                     structure={activeProposal.proposal.structure}
                     longStrike={activeProposal.proposal.long_leg.strike}
@@ -389,19 +324,20 @@ export default function Dashboard() {
                   />
                 </div>
               ) : (
-                <div className="glass-card p-8 text-center space-y-3">
-                  <div className="text-4xl">🔍</div>
-                  <div className="text-base font-bold text-white">Scanning Markets for High-Conviction Setups...</div>
-                  <div className="text-xs text-slate-400 font-mono">
-                    Scout &amp; Quant agents actively evaluating SPY, QQQ, and IWM option chains.
-                  </div>
-                  <button
-                    onClick={handleTriggerScan}
-                    className="mt-3 px-4 py-2 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs font-mono hover:bg-amber-400 transition-all cursor-pointer"
-                  >
-                    TRIGGER SCAN NOW
-                  </button>
-                </div>
+                <EmptyState
+                  icon={<Search className="w-8 h-8" />}
+                  title="No active trade proposal"
+                  description="No qualified options setup found. BullRun will not create a trade without a validated setup."
+                  action={
+                    <button
+                      onClick={handleTriggerScan}
+                      disabled={scanning}
+                      className="btn-primary px-4 py-2 rounded-lg text-xs font-mono cursor-pointer disabled:opacity-50"
+                    >
+                      {scanning ? "Scanning..." : "Trigger AI Scan"}
+                    </button>
+                  }
+                />
               )
             ) : rightPanelTab === "proof" ? (
               <ProofTab />
@@ -414,90 +350,106 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+
+        {/* ── Backtest Section ─────────────────────────────────── */}
+        {backtest && (
+          <div className="card">
+            <div className="card-header">
+              <span className="card-title flex items-center gap-1.5">
+                <BarChart3 className="w-3.5 h-3.5" />
+                Historical Backtest
+              </span>
+              <span className="text-[10px] text-[var(--muted)] font-mono">
+                {backtest.summary.backtest_period}
+              </span>
+            </div>
+            <div className="card-body space-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div>
+                  <div className="text-[10px] font-mono text-[var(--muted)] uppercase">Total P&L</div>
+                  <div className={cn(
+                    "text-lg font-bold font-mono",
+                    backtest.summary.total_pnl >= 0 ? "text-[var(--accent)]" : "text-[var(--danger)]"
+                  )}>
+                    ${backtest.summary.total_pnl >= 0 ? "+" : ""}{backtest.summary.total_pnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-mono text-[var(--muted)] uppercase">Win Rate</div>
+                  <div className="text-lg font-bold font-mono text-[var(--text)]">{backtest.summary.win_rate_pct}%</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-mono text-[var(--muted)] uppercase">Trades</div>
+                  <div className="text-lg font-bold font-mono text-[var(--text)]">
+                    {backtest.summary.total_trades}{" "}
+                    <span className="text-xs text-[var(--muted)]">({backtest.summary.winning_trades}W/{backtest.summary.losing_trades}L)</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-mono text-[var(--muted)] uppercase">Max Drawdown</div>
+                  <div className="text-lg font-bold font-mono text-[var(--warning)]">{backtest.summary.max_drawdown_pct}%</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-mono text-[var(--muted)] uppercase">Gate Rejections</div>
+                  <div className="text-lg font-bold font-mono text-[var(--text)]">{backtest.summary.risk_gate_rejections}</div>
+                </div>
+              </div>
+              {/* Equity curve mini chart */}
+              <div className="h-16 relative">
+                {(() => {
+                  const ec = backtest.equity_curve;
+                  if (ec.length === 0) return null;
+                  const vals = ec.map(e => e.equity);
+                  const min = Math.min(...vals);
+                  const max = Math.max(...vals);
+                  const range = max - min || 1;
+                  const w = 100 / ec.length;
+                  const path = ec.map((e, i) => {
+                    const x = i * w;
+                    const y = 100 - ((e.equity - min) / range) * 100;
+                    return `${i === 0 ? "M" : "L"}${x},${y}`;
+                  }).join(" ");
+                  return (
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
+                      <path d={path} fill="none" stroke="var(--accent)" strokeWidth="0.8" vectorEffect="non-scaling-stroke" />
+                    </svg>
+                  );
+                })()}
+              </div>
+              {/* Trade list */}
+              <div className="space-y-1">
+                {backtest.trades.map((t, i) => (
+                  <div key={i} className="flex items-center gap-3 text-[11px] font-mono">
+                    <span className={t.pnl >= 0 ? "text-[var(--accent)]" : "text-[var(--danger)]"}>
+                      {t.pnl >= 0 ? "\u25B2" : "\u25BC"}
+                    </span>
+                    <span className="text-[var(--muted)]">{t.entry_date} → {t.exit_date}</span>
+                    <span className="text-[var(--muted-strong)]">{t.strategy} {t.qty}x</span>
+                    <span className={t.pnl >= 0 ? "text-[var(--accent)]" : "text-[var(--danger)]"}>
+                      ${t.pnl >= 0 ? "+" : ""}{t.pnl.toFixed(2)}
+                    </span>
+                    <span className="text-[var(--muted)]">{t.exit_reason}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
-      {/* ── Backtest Section ──────────────────────────────────────────── */}
-      {backtest && (
-        <section className="mx-4 mb-3 bg-[#0d131f] rounded-xl border border-slate-800/60 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-slate-200">Historical Backtest</h3>
-            <span className="text-[10px] text-slate-500 font-mono">{backtest.summary.backtest_period}</span>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
-            <div>
-              <div className="text-[10px] text-slate-500 uppercase">Total P&L</div>
-              <div className={`text-lg font-bold font-mono ${backtest.summary.total_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                ${backtest.summary.total_pnl >= 0 ? '+' : ''}{backtest.summary.total_pnl.toLocaleString(undefined, {minimumFractionDigits: 2})}
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] text-slate-500 uppercase">Win Rate</div>
-              <div className="text-lg font-bold font-mono text-slate-200">{backtest.summary.win_rate_pct}%</div>
-            </div>
-            <div>
-              <div className="text-[10px] text-slate-500 uppercase">Trades</div>
-              <div className="text-lg font-bold font-mono text-slate-200">{backtest.summary.total_trades} <span className="text-xs text-slate-500">({backtest.summary.winning_trades}W/{backtest.summary.losing_trades}L)</span></div>
-            </div>
-            <div>
-              <div className="text-[10px] text-slate-500 uppercase">Max Drawdown</div>
-              <div className="text-lg font-bold font-mono text-amber-400">{backtest.summary.max_drawdown_pct}%</div>
-            </div>
-            <div>
-              <div className="text-[10px] text-slate-500 uppercase">Gate Rejections</div>
-              <div className="text-lg font-bold font-mono text-slate-200">{backtest.summary.risk_gate_rejections}</div>
-            </div>
-          </div>
-          {/* Equity curve mini chart */}
-          <div className="h-16 relative">
-            {(() => {
-              const ec = backtest.equity_curve;
-              if (ec.length === 0) return null;
-              const vals = ec.map(e => e.equity);
-              const min = Math.min(...vals);
-              const max = Math.max(...vals);
-              const range = max - min || 1;
-              const w = 100 / ec.length;
-              const path = ec.map((e, i) => {
-                const x = i * w;
-                const y = 100 - ((e.equity - min) / range) * 100;
-                return `${i === 0 ? 'M' : 'L'}${x},${y}`;
-              }).join(' ');
-              return (
-                <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
-                  <path d={path} fill="none" stroke="#22c55e" strokeWidth="0.8" vectorEffect="non-scaling-stroke" />
-                </svg>
-              );
-            })()}
-          </div>
-          {/* Trade list */}
-          <div className="mt-2 space-y-1">
-            {backtest.trades.map((t, i) => (
-              <div key={i} className="flex items-center gap-3 text-[11px] font-mono">
-                <span className={t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{t.pnl >= 0 ? '▲' : '▼'}</span>
-                <span className="text-slate-400">{t.entry_date} → {t.exit_date}</span>
-                <span className="text-slate-300">{t.strategy} {t.qty}x</span>
-                <span className={t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}>${t.pnl >= 0 ? '+' : ''}{t.pnl.toFixed(2)}</span>
-                <span className="text-slate-500">{t.exit_reason}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── Footer ───────────────────────────────────────────────────── */}
-      <footer className="border-t border-slate-800/80 bg-[#0d131f] px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-400">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          <span className="text-slate-300 font-bold">SPY</span>
+      {/* ── Footer ───────────────────────────────────────────── */}
+      <footer className="border-t border-[var(--border)] bg-[var(--surface)] px-4 md:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-[var(--muted)]">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="text-[var(--muted-strong)] font-semibold">SPY</span>
           <span>2% Rule ($2K max loss)</span>
           <span>Greeks Exit &lt; 0.10</span>
           <span>TP: 50% @ +30%</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <span>Alpaca Hackathon 2026</span>
-          <span className="text-amber-400 font-bold">BullRun v2.0</span>
+          <span className="text-[var(--accent)] font-bold">BullRun</span>
         </div>
       </footer>
     </div>
   );
 }
-

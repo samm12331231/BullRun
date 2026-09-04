@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "BullRun — AI Options Trading Terminal",
+  title: "BullRun — Governed AI Options Paper Trading",
   description:
-    "AI proposes. Evidence decides. Humans authorize. A Bloomberg-grade options trading desk with deterministic risk gates and plain-English educational transparency.",
+    "AI proposes. Evidence decides. Humans authorize. Governed options paper trading on Alpaca with deterministic risk gates.",
 };
 
 export default function RootLayout({
@@ -22,7 +22,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-full flex flex-col font-sans bg-[#080b11] text-[#e2e8f0] selection:bg-amber-500/30 selection:text-amber-200">
+      <body className="min-h-full flex flex-col font-sans bg-[var(--bg)] text-[var(--text)] selection:bg-[var(--accent-soft)] selection:text-[var(--accent)]">
         {children}
       </body>
     </html>
