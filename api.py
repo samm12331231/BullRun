@@ -616,7 +616,7 @@ async def proof_dashboard():
 
     portfolio = _get_portfolio_state()
     summary = monitor.get_portfolio_summary()
-    trade_history = get_trade_history(limit=50)
+    trade_history = get_trade_history()[:50]
     chain_valid = verify_chain()
 
     # Count gate statistics
