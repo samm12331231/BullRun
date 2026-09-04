@@ -85,9 +85,11 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 10000);
+    const interval = setInterval(() => {
+      if (!scanning) loadData();
+    }, 10000);
     return () => clearInterval(interval);
-  }, [loadData]);
+  }, [loadData, scanning]);
 
   useEffect(() => {
     if (pendingProposal) {
@@ -103,19 +105,15 @@ export default function Dashboard() {
       const timeout = setTimeout(() => controller.abort(), 120000);
       const res = await fetch(`${API_URL}/api/scan`, { method: "POST", signal: controller.signal });
       clearTimeout(timeout);
-      if (!res.ok) {
-        console.error("Scan returned", res.status);
-      } else {
+      if (res.ok) {
         const data = await res.json();
-        if (data?.result?.proposal) {
+        if (data?.result) {
           setActiveProposal(data.result);
         }
       }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "unknown";
-      console.error("Scan error:", msg);
+    } catch {
+      // Scan failed — will retry on next interval
     }
-    try { await loadData(); } catch (_) { /* ignore */ }
     setScanning(false);
   };
 
@@ -147,7 +145,7 @@ export default function Dashboard() {
   const accountAvailable = portfolioExt?.account_data_available;
 
   return (
-    <div className="min-h-screen flex flex-col bg-[var(--bg)] text-[var(--text)]">
+    <div className="min-h-screen flex flex-col bg-[var(--bg)] text-[var(--text)]" suppressHydrationWarning>
       {/* ── A. TOP HEADER ──────────────────────────────────────── */}
       <AppHeader
         connected={connected}

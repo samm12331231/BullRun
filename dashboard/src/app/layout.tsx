@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ClientErrorBoundary } from "@/components/ClientErrorBoundary";
 
 export const metadata: Metadata = {
   title: "BullRun — Governed AI Options Paper Trading",
@@ -23,7 +24,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-full flex flex-col font-sans bg-[var(--bg)] text-[var(--text)] selection:bg-[var(--accent-soft)] selection:text-[var(--accent)]">
-        {children}
+        <ClientErrorBoundary>{children}</ClientErrorBoundary>
       </body>
     </html>
   );
