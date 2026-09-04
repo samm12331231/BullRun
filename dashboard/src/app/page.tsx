@@ -99,15 +99,23 @@ export default function Dashboard() {
   const handleTriggerScan = async () => {
     setScanning(true);
     try {
-      const res = await fetch(`${API_URL}/api/scan`, { method: "POST" });
-      const data = await res.json();
-      if (data?.result?.proposal) {
-        setActiveProposal(data.result);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120000);
+      const res = await fetch(`${API_URL}/api/scan`, { method: "POST", signal: controller.signal });
+      clearTimeout(timeout);
+      if (!res.ok) {
+        console.error("Scan returned", res.status);
+      } else {
+        const data = await res.json();
+        if (data?.result?.proposal) {
+          setActiveProposal(data.result);
+        }
       }
-      await loadData();
-    } catch (e) {
-      console.error("Scan failed:", e);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "unknown";
+      console.error("Scan error:", msg);
     }
+    try { await loadData(); } catch (_) { /* ignore */ }
     setScanning(false);
   };
 
