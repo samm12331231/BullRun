@@ -56,6 +56,8 @@ export default function Dashboard() {
   const [chartData, setChartData] = useState<Array<{ time: string; open: number; high: number; low: number; close: number; volume: number }>>([]);
   const [activeProposal, setActiveProposal] = useState<TradeProposal | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const [scanStatus, setScanStatus] = useState<"idle" | "success" | "no_trade" | "error" | "timeout">("idle");
   const [rightPanelTab, setRightPanelTab] = useState<"proposal" | "academy" | "proof">("proposal");
   const [backtest, setBacktest] = useState<BacktestResult | null>(null);
 
@@ -100,18 +102,35 @@ export default function Dashboard() {
 
   const handleTriggerScan = async () => {
     setScanning(true);
+    setScanStatus("idle");
+    setScanMessage(null);
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 120000);
       const res = await fetch(`${API_URL}/api/scan`, { method: "POST", signal: controller.signal });
       clearTimeout(timeout);
-      if (res.ok) {
+
+      if (res.status === 401 || res.status === 403) {
+        setScanStatus("error");
+        setScanMessage("Scan access denied — API token is missing or invalid.");
+      } else if (res.status === 503) {
+        setScanStatus("error");
+        setScanMessage("Backend is starting up. Please wait a moment and retry.");
+      } else if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setScanStatus("error");
+        setScanMessage(`Scan failed: ${body.detail || body.error || res.statusText}`);
+      } else {
         const data = await res.json();
         const result = data?.result;
         if (result?.decision !== "NO_TRADE" && result?.proposal?.structure) {
           setActiveProposal(result);
+          setScanStatus("success");
+          setScanMessage("Qualified options proposal generated and sent to risk validation.");
+          setRightPanelTab("proposal");
         } else if (result?.regime) {
-          // Show NO_TRADE feedback in pipeline activity
+          setScanStatus("no_trade");
+          setScanMessage(`Scan complete — ${result.regime.regime} regime (${Math.round((result.regime.confidence || 0) * 100)}% confidence). BullRun will not force a trade without a validated setup.`);
           const noTradeEntry = {
             event: "SCOUT_SCAN",
             trade_number: 0,
@@ -122,8 +141,14 @@ export default function Dashboard() {
           setTrades(prev => [noTradeEntry, ...prev].slice(0, 20));
         }
       }
-    } catch {
-      // Scan failed — will retry on next interval
+    } catch (e: unknown) {
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setScanStatus("timeout");
+        setScanMessage("Scan timed out after 120 seconds. The backend may be cold-starting.");
+      } else {
+        setScanStatus("error");
+        setScanMessage("Could not reach the BullRun API. Check the backend URL.");
+      }
     }
     setScanning(false);
   };
@@ -175,6 +200,32 @@ export default function Dashboard() {
         accountDataAvailable={accountAvailable}
         retrievedAt={retrievedAt}
       />
+
+      {/* ── Scan status banner ───────────────────────────────── */}
+      {(scanning || scanMessage) && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`mx-4 md:mx-5 -mt-2 mb-2 px-4 py-2.5 rounded-lg border text-xs font-mono flex items-center gap-2 transition-all duration-200 ${
+            scanStatus === "success"
+              ? "bg-[var(--accent-soft)] border-[var(--accent)] text-[var(--accent)]"
+              : scanStatus === "no_trade"
+              ? "bg-[var(--info-soft)] border-[var(--info)] text-[var(--info)]"
+              : scanStatus === "error" || scanStatus === "timeout"
+              ? "bg-[var(--danger-soft)] border-[var(--danger)] text-[var(--danger)]"
+              : "bg-[var(--surface-raised)] border-[var(--border)] text-[var(--muted)]"
+          }`}
+        >
+          {scanning ? (
+            <>
+              <span className="inline-block w-2 h-2 rounded-full bg-[var(--warning)] animate-pulse" />
+              Scanning market — running Scout, Quant, and 12 risk gates...
+            </>
+          ) : (
+            <>{scanMessage}</>
+          )}
+        </div>
+      )}
 
       {/* ── Main content ───────────────────────────────────────── */}
       <main className="flex-1 p-4 md:p-5 space-y-4 max-w-[1920px] mx-auto w-full">
