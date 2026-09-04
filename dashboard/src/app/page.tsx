@@ -320,6 +320,7 @@ export default function Dashboard() {
                       />
                     </div>
                   )}
+                  {activeProposal.proposal.long_leg && activeProposal.proposal.short_leg && (
                   <PayoffDiagram
                     structure={activeProposal.proposal.structure}
                     longStrike={activeProposal.proposal.long_leg.strike}
@@ -328,6 +329,7 @@ export default function Dashboard() {
                     currentPrice={regime?.metrics?.current_price || activeProposal.proposal.breakeven}
                     underlying={activeProposal.proposal.underlying}
                   />
+                  )}
                 </div>
               ) : (
                 <EmptyState
