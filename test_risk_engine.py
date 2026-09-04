@@ -1,7 +1,20 @@
 """Smoke tests for BullRun's 12 deterministic risk gates."""
 
 import pytest
+from unittest.mock import patch
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
 from agents.risk_engine import RiskEngine
+
+
+@pytest.fixture(autouse=True)
+def _mock_market_hours():
+    """Always run tests as if it's 10:30 AM EST on a weekday (safe trading window)."""
+    fake_now = datetime(2026, 9, 3, 10, 30, 0, tzinfo=ZoneInfo("America/New_York"))
+    with patch("agents.risk_engine.datetime") as mock_dt:
+        mock_dt.now.return_value = fake_now
+        mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+        yield
 
 @pytest.fixture
 def engine():
