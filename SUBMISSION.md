@@ -1,6 +1,7 @@
 # BullRun — Alpaca AI Trading Agents Hackathon
 
 **Repository:** https://github.com/samm12331231/BullRun
+**Paper Trading Account ID:** PA34MQVB5ADQ
 **Paper Trading Account:** Connected via Alpaca SDK (paper mode)
 **Event:** Alpaca AI Trading Agents Hackathon (Aug 28 – Sep 4, 2026)
 
