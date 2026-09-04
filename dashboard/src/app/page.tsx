@@ -107,7 +107,7 @@ export default function Dashboard() {
       clearTimeout(timeout);
       if (res.ok) {
         const data = await res.json();
-        if (data?.result) {
+        if (data?.result && data.result.decision !== "NO_TRADE" && data.result.proposal?.structure) {
           setActiveProposal(data.result);
         }
       }

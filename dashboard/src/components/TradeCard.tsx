@@ -105,7 +105,7 @@ export default function TradeCard({ proposal, onDecision }: TradeCardProps) {
               border: `1px solid ${directionColor}40`,
             }}
           >
-            #{proposal.trade_number.toString().padStart(2, "0")}
+            #{(proposal.trade_number ?? 0).toString().padStart(2, "0")}
           </div>
           <div>
             <div className="text-sm font-bold text-white tracking-wide font-mono flex items-center gap-2">
