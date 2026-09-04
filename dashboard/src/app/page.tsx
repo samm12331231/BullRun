@@ -107,8 +107,19 @@ export default function Dashboard() {
       clearTimeout(timeout);
       if (res.ok) {
         const data = await res.json();
-        if (data?.result && data.result.decision !== "NO_TRADE" && data.result.proposal?.structure) {
-          setActiveProposal(data.result);
+        const result = data?.result;
+        if (result?.decision !== "NO_TRADE" && result?.proposal?.structure) {
+          setActiveProposal(result);
+        } else if (result?.regime) {
+          // Show NO_TRADE feedback in pipeline activity
+          const noTradeEntry = {
+            event: "SCOUT_SCAN",
+            trade_number: 0,
+            timestamp: new Date().toISOString(),
+            structure: result.proposal?.signal || "NO_TRADE",
+            details: result.regime?.reason || `Regime: ${result.regime.regime}`,
+          };
+          setTrades(prev => [noTradeEntry, ...prev].slice(0, 20));
         }
       }
     } catch {
