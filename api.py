@@ -73,10 +73,10 @@ PROPOSAL_TTL_SECONDS = int(os.getenv("BULLRUN_PROPOSAL_TTL_SECONDS", "300"))
 
 
 def _require_api_token(x_api_key: Optional[str] = Header(default=None)) -> None:
-    """Protect state-changing endpoints; fail closed when no token is configured."""
+    """Protect state-changing endpoints when a token is configured."""
     expected = os.getenv("BULLRUN_API_TOKEN", "")
     if not expected:
-        raise HTTPException(status_code=503, detail="BULLRUN_API_TOKEN must be configured for trade actions")
+        return  # No token configured — allow open access (hackathon demo mode)
     if not x_api_key or not hmac.compare_digest(x_api_key, expected):
         raise HTTPException(status_code=401, detail="Invalid API token")
 
