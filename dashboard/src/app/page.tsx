@@ -123,22 +123,32 @@ export default function Dashboard() {
       } else {
         const data = await res.json();
         const result = data?.result;
-        if (result?.decision !== "NO_TRADE" && result?.proposal?.structure) {
+        // Only set activeProposal if we have a real proposal with structure (passed risk gates)
+        if (result?.proposal?.structure && !result?.decision) {
           setActiveProposal(result);
           setScanStatus("success");
           setScanMessage("Qualified options proposal generated and sent to risk validation.");
           setRightPanelTab("proposal");
         } else if (result?.regime) {
+          // NO_TRADE, WATCH, REJECT, RISK_REJECTED — show in pipeline, don't set as active proposal
           setScanStatus("no_trade");
-          setScanMessage(`Scan complete — ${result.regime.regime} regime (${Math.round((result.regime.confidence || 0) * 100)}% confidence). BullRun will not force a trade without a validated setup.`);
+          const reason = result.decision === "NO_TRADE" ? "NEUTRAL regime — no directional setup"
+            : result.decision === "RISK_REJECTED" ? "Rejected by risk engine"
+            : result.decision === "REJECT" ? "Rejected by quant agent"
+            : result.decision === "WATCH" ? "Watching — no high-conviction setup"
+            : result.regime?.reason || `Regime: ${result.regime.regime}`;
+          setScanMessage(`Scan complete — ${result.regime.regime} regime (${Math.round((result.regime.confidence || 0) * 100)}% confidence). ${reason}.`);
           const noTradeEntry = {
             event: "SCOUT_SCAN",
             trade_number: 0,
             timestamp: new Date().toISOString(),
-            structure: result.proposal?.signal || "NO_TRADE",
-            details: result.regime?.reason || `Regime: ${result.regime.regime}`,
+            structure: result.decision || result.proposal?.signal || "NO_TRADE",
+            details: reason,
           };
           setTrades(prev => [noTradeEntry, ...prev].slice(0, 20));
+        } else if (data?.error) {
+          setScanStatus("error");
+          setScanMessage(`Scan error: ${data.error}`);
         }
       }
     } catch (e: unknown) {

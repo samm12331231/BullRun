@@ -16,6 +16,7 @@ export default function TradeCard({ proposal, onDecision }: TradeCardProps) {
   const [showTeaching, setShowTeaching] = useState(true);
 
   const { proposal: p, thesis, risk_check } = proposal;
+  if (!p) return null;
   const structureName = p.structure?.replace(/_/g, " ") ?? "SPREAD";
   const isBull = p.structure?.includes("CALL") || p.direction === "LONG";
   const directionColor = isBull ? "#10b981" : "#f43f5e";
