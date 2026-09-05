@@ -551,7 +551,7 @@ async def safety_challenge():
     portfolio = _get_portfolio_state()
     equity = float(portfolio.get("equity") or 100_000)
 
-    # Create a deliberately oversized proposal (18% risk — the original 18% incident)
+    # Create a deliberately oversized proposal (~5.5% risk, exceeding the 2% limit)
     oversized_proposal = {
         "max_loss_per_contract": 552,
         "quantity": 10,
@@ -580,7 +580,7 @@ async def safety_challenge():
     safe_result = _re.risk_engine.check(safe_proposal, portfolio)
 
     return {
-        "scenario": "18% Portfolio Risk Test",
+        "scenario": "Oversized Position Risk Test",
         "description": "Quant agent proposes 10 spreads risking $5,520 (5.5% of equity). The 2% rule blocks it.",
         "account": {
             "equity": equity,
@@ -607,6 +607,19 @@ async def safety_challenge():
 # ── Proof & Safety Dashboard ───────────────────────────────────────────────
 
 @app.get("/api/proof")
+def _compute_max_drawdown(engine) -> float:
+    """Compute real max drawdown % from peak equity vs current equity."""
+    peak = engine._peak_equity
+    try:
+        from orchestrator import _get_portfolio_state
+        current = _get_portfolio_state().get("equity")
+    except Exception:
+        current = None
+    if peak and current and peak > 0:
+        return round(max(0, (peak - current) / peak * 100), 2)
+    return 0.0
+
+
 async def proof_dashboard():
     """Evidence screen for judges: account info, P&L, gate stats, audit status."""
     from agents import risk_engine as _re
@@ -650,7 +663,7 @@ async def proof_dashboard():
             "open_positions": summary.get("open_count", 0),
             "closed_positions": summary.get("closed_count", 0),
             "win_rate": summary.get("win_rate", 0),
-            "max_drawdown_pct": _re.risk_engine._blocked_by_gate.get("DRAWDOWN", 0),
+            "max_drawdown_pct": _compute_max_drawdown(_re.risk_engine),
         },
         "risk_engine": {
             "total_proposals_checked": total_checked,
