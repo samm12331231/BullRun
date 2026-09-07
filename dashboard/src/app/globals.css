@@ -38,9 +38,7 @@
   --font-mono: var(--font-mono);
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 html, body {
   height: 100%;
@@ -52,23 +50,19 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── Scrollbar ─────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
-/* ── Card ──────────────────────────────────────────────────────────── */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 8px;
   transition: border-color 150ms ease;
 }
 
-.card:hover {
-  border-color: rgba(146, 160, 179, 0.24);
-}
+.card:hover { border-color: rgba(146, 160, 179, 0.35); }
 
 .card-header {
   display: flex;
@@ -87,30 +81,24 @@ html, body {
   font-family: var(--font-mono);
 }
 
-.card-body {
-  padding: 16px;
-}
+.card-body { padding: 16px; }
 
-/* ── Metric Card ───────────────────────────────────────────────────── */
 .metric-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 16px;
+  border-radius: 6px;
+  padding: 11px 13px;
   transition: border-color 150ms ease;
 }
 
-.metric-card:hover {
-  border-color: rgba(146, 160, 179, 0.24);
-}
+.metric-card:hover { border-color: rgba(146, 160, 179, 0.35); }
 
-/* ── Status Badge ──────────────────────────────────────────────────── */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 3px 10px;
-  border-radius: 6px;
+  border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
   font-family: var(--font-mono);
@@ -118,37 +106,12 @@ html, body {
   white-space: nowrap;
 }
 
-.badge-accent {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border: 1px solid rgba(80, 213, 168, 0.2);
-}
+.badge-accent { background: var(--accent-soft); color: var(--accent); border: 1px solid rgba(80, 213, 168, 0.2); }
+.badge-warning { background: var(--warning-soft); color: var(--warning); border: 1px solid rgba(240, 184, 90, 0.2); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); border: 1px solid rgba(241, 116, 122, 0.2); }
+.badge-info { background: var(--info-soft); color: var(--info); border: 1px solid rgba(120, 168, 255, 0.2); }
+.badge-muted { background: rgba(146, 160, 179, 0.1); color: var(--muted); border: 1px solid var(--border-subtle); }
 
-.badge-warning {
-  background: var(--warning-soft);
-  color: var(--warning);
-  border: 1px solid rgba(240, 184, 90, 0.2);
-}
-
-.badge-danger {
-  background: var(--danger-soft);
-  color: var(--danger);
-  border: 1px solid rgba(241, 116, 122, 0.2);
-}
-
-.badge-info {
-  background: var(--info-soft);
-  color: var(--info);
-  border: 1px solid rgba(120, 168, 255, 0.2);
-}
-
-.badge-muted {
-  background: rgba(146, 160, 179, 0.1);
-  color: var(--muted);
-  border: 1px solid var(--border-subtle);
-}
-
-/* ── Buttons ───────────────────────────────────────────────────────── */
 .btn-primary {
   background: var(--accent);
   color: #0a0d12;
@@ -156,88 +119,43 @@ html, body {
   border: none;
   transition: background 150ms ease, transform 150ms ease;
 }
+.btn-primary:hover:not(:disabled) { background: var(--accent-strong); transform: translateY(-1px); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-secondary { background: var(--surface-raised); color: var(--muted-strong); border: 1px solid var(--border); transition: all 150ms ease; }
+.btn-secondary:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); border-color: var(--muted); }
+.btn-danger { background: var(--danger-soft); color: var(--danger); border: 1px solid rgba(241, 116, 122, 0.2); transition: all 150ms ease; }
+.btn-danger:hover:not(:disabled) { background: rgba(241, 116, 122, 0.2); }
 
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-strong);
-  transform: translateY(-1px);
-}
+.tab-bar { display: grid; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 3px; }
+.tab-bar button { padding: 8px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; font-family: var(--font-mono); color: var(--muted); background: transparent; border: none; cursor: pointer; transition: all 150ms ease; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.tab-bar button:hover { color: var(--muted-strong); background: var(--surface-raised); }
+.tab-bar button[aria-selected="true"] { color: var(--text); background: var(--surface-raised); }
 
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-secondary {
-  background: var(--surface-raised);
-  color: var(--muted-strong);
-  border: 1px solid var(--border);
-  transition: all 150ms ease;
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text);
-  border-color: var(--muted);
-}
-
-.btn-danger {
-  background: var(--danger-soft);
-  color: var(--danger);
-  border: 1px solid rgba(241, 116, 122, 0.2);
-  transition: all 150ms ease;
-}
-
-.btn-danger:hover:not(:disabled) {
-  background: rgba(241, 116, 122, 0.2);
-}
-
-/* ── Tab bar ───────────────────────────────────────────────────────── */
-.tab-bar {
-  display: grid;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 3px;
-}
-
-.tab-bar button {
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: var(--font-mono);
-  color: var(--muted);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: all 150ms ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-.tab-bar button:hover {
-  color: var(--muted-strong);
-  background: var(--surface-raised);
-}
-
-.tab-bar button[aria-selected="true"] {
-  color: var(--text);
-  background: var(--surface-raised);
-}
-
-/* ── Pulse dot ─────────────────────────────────────────────────────── */
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-.pulse {
-  animation: pulse 2s ease-in-out infinite;
-}
-
-/* ── Risk gate colors ──────────────────────────────────────────────── */
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+.pulse { animation: pulse 2s ease-in-out infinite; }
 .gate-pass { color: var(--accent); }
 .gate-fail { color: var(--danger); }
 .gate-warn { color: var(--warning); }
+
+/* ── Workspace hierarchy ─────────────────────────────────────────── */
+main { padding-top: 12px; }
+
+/* Compact account strip: the workspace, not the metrics, owns attention. */
+main > div:has(> .metric-card) { gap: 8px; }
+main > div:has(> .metric-card) .metric-card { min-height: 78px; }
+
+/* Give the market workspace more room than the supporting decision rail. */
+@media (min-width: 1280px) {
+  main > div[class*="xl\\:grid-cols-12"] { grid-template-columns: minmax(0, 1.7fr) minmax(340px, 0.9fr); }
+  main > div[class*="xl\\:grid-cols-12"] > [class*="xl\\:col-span-7"],
+  main > div[class*="xl\\:grid-cols-12"] > [class*="xl\\:col-span-5"] { grid-column: auto; }
+  main > div[class*="xl\\:grid-cols-12"] > [class*="xl\\:col-span-7"] > .card:first-child { border-color: rgba(120, 168, 255, 0.35); }
+  main > div[class*="xl\\:grid-cols-12"] > [class*="xl\\:col-span-7"] .h-\[360px\] { height: 470px; }
+  main > div[class*="xl\\:grid-cols-12"] > [class*="xl\\:col-span-5"] { position: sticky; top: 92px; }
+}
+
+@media (max-width: 767px) {
+  main { padding: 12px; }
+  main > div:has(> .metric-card) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric-card { padding: 10px; }
+}
